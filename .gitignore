@@ -1,0 +1,10 @@
+# Your filled-in configuration — registry token, database URIs, JWT secret, provider keys.
+# This repository is PUBLIC. Never commit it, and never commit a copy of it under another name:
+# a timestamped backup is the usual way one gets published by accident.
+.env
+.env.*
+!.env.example
+
+# Created at runtime by the stack.
+logs/
+temp/

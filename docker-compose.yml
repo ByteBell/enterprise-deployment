@@ -1,0 +1,467 @@
+# =============================================================================
+# SERVER 2 — ByteBell Application Stack (registry deployment)
+# =============================================================================
+# Runs on client-owned infrastructure.
+# system-manager autonomously updates all services via Docker socket.
+#
+# This stack connects OUTBOUND to Server 1 (fileserver stack):
+#   NEO4J_URI              → bolt://<server1-ip>:7687
+#   FILE_STORAGE_URL       → http://<server1-ip>:9000
+#
+# Usage:
+#   make up
+# =============================================================================
+
+name: bb-stack
+
+x-registry-image: &registry-image
+  pull_policy: always
+
+services:
+  # ── Redis (BullMQ queues + session cache) ───────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: bb-stack-redis
+    restart: unless-stopped
+    ports:
+      # LOOPBACK ONLY. Redis runs with no password and holds job payloads (git tokens, decrypted
+      # provider keys), so "6379:6379" would publish an unauthenticated database on every interface
+      # the host has. Every service that needs it reaches it over the compose network by name, not
+      # through this mapping — it exists for `redis-cli` on the host during triage. Delete the two
+      # lines below entirely if you never need that.
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --save "" --stop-writes-on-bgsave-error no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - stack-net
+
+  # ── Admin Dashboard (static frontend) ───────────────────────────────────────
+  admin-dashboard:
+    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:admin-dashboard-${IMAGE_TAG:-latest}
+    <<: *registry-image
+    container_name: bb-stack-admin-ui
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - VITE_BASE_URL=${VITE_BASE_URL:-/api/admin}
+      - VITE_SUPPORT_EMAIL=${VITE_SUPPORT_EMAIL:-support@yourdomain.com}
+      - ENABLE_PDF=${ENABLE_PDF:-false}
+      - ENABLE_WEBSITE=${ENABLE_WEBSITE:-false}
+    networks:
+      - stack-net
+
+  # ── HAProxy (API routing + load balancing across MCP replicas) ──────────────
+  haproxy:
+    image: haproxy:2.9-alpine
+    container_name: bb-stack-haproxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "8404:8404"
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./haproxy/errors:/etc/haproxy/errors:ro
+    depends_on:
+      - admin-dashboard
+      - admin-server
+      - knowledge-server
+      - email-dispatcher
+      - mcp-server-1
+      - mcp-server-2
+      - mcp-server-3
+      - mcp-server-4
+    networks:
+      - stack-net
+
+  # ── Knowledge Server (ingestion) — from the single ingestion-engine image ───
+  # admin-server + knowledge-server both pull the SAME ECR image and differ only
+  # by `command`. NOTE: FILE_STORAGE_* are passed through unchanged — the split
+  # fileserver (Server 1) is left untouched this pass.
+  knowledge-server:
+    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:ingestion-engine-${IMAGE_TAG:-latest}
+    <<: *registry-image
+    container_name: bb-stack-knowledge
+    restart: unless-stopped
+    command: ["/app/bytebell-knowledge-server", "prod"]
+    env_file:
+      - .env
+    volumes:
+      - ./logs/knowledge-server:/app/logs
+      - ./temp:/app/temp
+    environment:
+      # Server sets NODE_ENV=production in .env (→ JSON logs); local defaults to development (→ pretty).
+      NODE_ENV: ${NODE_ENV:-development}
+      KNOWLEDGE_SERVER_PORT: 3001
+      KNOWLEDGE_BASE_PATH: /app/temp
+      GITHUB_API_STREAMING_ENABLED: ${GITHUB_API_STREAMING_ENABLED:-false}
+      GITHUB_API_BATCH_SIZE: ${GITHUB_API_BATCH_SIZE:-10}
+      FILE_STORAGE_URL: ${FILE_STORAGE_URL}
+      FILE_STORAGE_WRITE_TOKEN: ${FILE_STORAGE_WRITE_TOKEN}
+      FILE_STORAGE_READ_TOKEN: ${FILE_STORAGE_READ_TOKEN}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      redis:
+        condition: service_healthy
+      system-manager:
+        condition: service_healthy
+    networks:
+      - stack-net
+
+  # ── Admin Server (API gateway) — same ingestion-engine image, admin entry ───
+  admin-server:
+    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:ingestion-engine-${IMAGE_TAG:-latest}
+    <<: *registry-image
+    container_name: bb-stack-admin
+    restart: unless-stopped
+    command: ["/app/bytebell-admin-server", "prod"]
+    env_file:
+      - .env
+    volumes:
+      - ./logs/admin-server:/app/logs
+      - ./logs:/app/all-logs:ro
+      - ./temp:/app/temp
+    environment:
+      # Server sets NODE_ENV=production in .env (→ JSON logs); local defaults to development (→ pretty).
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3002
+      LOGS_DIR: /app/all-logs
+      KNOWLEDGE_BASE_PATH: /app/temp
+      FILE_STORAGE_URL: ${FILE_STORAGE_URL}
+      FILE_STORAGE_READ_TOKEN: ${FILE_STORAGE_READ_TOKEN}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      redis:
+        condition: service_healthy
+      system-manager:
+        condition: service_healthy
+    networks:
+      - stack-net
+
+  # ── Email Dispatcher (SES) — same ingestion-engine image, email-dispatcher entry ──
+  email-dispatcher:
+    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:ingestion-engine-${IMAGE_TAG:-latest}
+    <<: *registry-image
+    container_name: bb-stack-email-dispatcher
+    restart: unless-stopped
+    command: ["/app/bytebell-email-dispatcher", "prod"]
+    env_file:
+      - .env
+    volumes:
+      - ./logs/email-dispatcher:/app/logs
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      EMAIL_DISPATCHER_PORT: 3005
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      redis:
+        condition: service_healthy
+      system-manager:
+        condition: service_healthy
+    networks:
+      - stack-net
+
+  # ── Conversation Memory (embedded LadybugDB — SINGLE instance; durable volume + S3 snapshot) ──
+  conversation-memory:
+    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:conversation-memory-${IMAGE_TAG:-latest}
+    <<: *registry-image
+    container_name: bb-stack-conversation-memory
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+    volumes:
+      # Durable — the embedded DB is the source of memory; must survive deploys. S3 snapshot is a backstop.
+      - conversation-ladybug:/app/data/conversation-ladybug
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3200/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    depends_on:
+      system-manager:
+        condition: service_healthy
+    networks:
+      - stack-net
+
+  # ── MCP Servers (4 replicas behind HAProxy) ─────────────────────────────────
+  mcp-server-1:
+    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:mcp-server-${IMAGE_TAG:-latest}
+    <<: *registry-image
+    container_name: bb-stack-mcp-1
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
+      - MCP_ENV=${NODE_ENV:-development}
+      - PORT=3100
+      - FILE_STREAMING=true
+      - FILE_STORAGE_URL=${FILE_STORAGE_URL}
+      - FILE_STORAGE_READ_TOKEN=${FILE_STORAGE_READ_TOKEN}
+    volumes:
+      - ./logs/mcp/mcp-1:/app/mcp-server/logs
+    read_only: true
+    tmpfs:
+      - /tmp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          memory: 8g
+    networks:
+      - stack-net
+
+  mcp-server-2:
+    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:mcp-server-${IMAGE_TAG:-latest}
+    <<: *registry-image
+    container_name: bb-stack-mcp-2
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
+      - MCP_ENV=${NODE_ENV:-development}
+      - PORT=3100
+      - FILE_STREAMING=true
+      - FILE_STORAGE_URL=${FILE_STORAGE_URL}
+      - FILE_STORAGE_READ_TOKEN=${FILE_STORAGE_READ_TOKEN}
+    volumes:
+      - ./logs/mcp/mcp-2:/app/mcp-server/logs
+    read_only: true
+    tmpfs:
+      - /tmp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          memory: 8g
+    networks:
+      - stack-net
+
+  mcp-server-3:
+    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:mcp-server-${IMAGE_TAG:-latest}
+    <<: *registry-image
+    container_name: bb-stack-mcp-3
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
+      - MCP_ENV=${NODE_ENV:-development}
+      - PORT=3100
+      - FILE_STREAMING=true
+      - FILE_STORAGE_URL=${FILE_STORAGE_URL}
+      - FILE_STORAGE_READ_TOKEN=${FILE_STORAGE_READ_TOKEN}
+    volumes:
+      - ./logs/mcp/mcp-3:/app/mcp-server/logs
+    read_only: true
+    tmpfs:
+      - /tmp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          memory: 8g
+    networks:
+      - stack-net
+
+  mcp-server-4:
+    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:mcp-server-${IMAGE_TAG:-latest}
+    <<: *registry-image
+    container_name: bb-stack-mcp-4
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
+      - MCP_ENV=${NODE_ENV:-development}
+      - PORT=3100
+      - FILE_STREAMING=true
+      - FILE_STORAGE_URL=${FILE_STORAGE_URL}
+      - FILE_STORAGE_READ_TOKEN=${FILE_STORAGE_READ_TOKEN}
+    volumes:
+      - ./logs/mcp/mcp-4:/app/mcp-server/logs
+    read_only: true
+    tmpfs:
+      - /tmp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          memory: 8g
+    networks:
+      - stack-net
+
+  # ── System Manager (license gate + autonomous service updates) ──────────────
+  system-manager:
+    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:system-manager-${IMAGE_TAG:-latest}
+    <<: *registry-image
+    container_name: bb-stack-system-manager
+    restart: unless-stopped
+    ports:
+      # LOOPBACK ONLY. This is the update-control API — it pulls images and replaces running
+      # containers. HAProxy reaches it over the compose network by name, and the browser reaches it
+      # through HAProxy on :80, so nothing legitimate needs it on a public interface. It is guarded by
+      # UPDATE_API_TOKEN, but a token is the second line of defence, not the first.
+      - "127.0.0.1:3003:3003"
+    env_file:
+      - .env
+    environment:
+      # system-manager must stay on 3003 (haproxy + app config-fetch + healthcheck all target :3003).
+      # Pin it here so the shared .env PORT (=3002, for admin-server) can't move system-manager off 3003.
+      - PORT=3003
+      # Standalone deployments source config from this .env and never call the ByteBell config
+      # API; LICENSE_KEY / CLIENT_ID are unused and may be blank. `:-` on both so a standalone
+      # .env that omits them entirely doesn't trip a compose interpolation warning.
+      - STANDALONE_MODE=${STANDALONE_MODE:-false}
+      - LICENSE_KEY=${LICENSE_KEY:-}
+      # Token-auth registry (private Docker Hub). Blank on ECR — the AWS_* creds below apply.
+      - REGISTRY_USERNAME=${BYTEBELL_REGISTRY_USERNAME:-}
+      - REGISTRY_TOKEN=${BYTEBELL_REGISTRY_TOKEN:-}
+      - UPDATE_API_TOKEN=${UPDATE_API_TOKEN:-}
+      - CLIENT_ID=${CLIENT_ID:-}
+      - CURRENT_VERSION=${IMAGE_TAG:-}
+      - CHECK_INTERVAL=3600
+      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-bb-stack}
+      - COMPOSE_FILE=${COMPOSE_PROJECT_DIR}/docker-compose-stack.yml
+      - ENV_FILE=${COMPOSE_PROJECT_DIR}/.env
+      - COMPOSE_PROJECT_DIR=${COMPOSE_PROJECT_DIR}
+      # ECR pull credential (ByteBell-provided), mapped onto the standard AWS names the
+      # SDK expects. `environment` overrides `env_file`, so this container authenticates
+      # to the registry with ByteBell's pull-only key while every other service keeps the
+      # customer's own AWS_* from .env for their S3 bucket. system-manager never uses S3.
+      - AWS_REGION=${BYTEBELL_ECR_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${BYTEBELL_ECR_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${BYTEBELL_ECR_SECRET_ACCESS_KEY:-}
+      # Both halves — localImageRef (rolling-update.ts) skips the rewrite if either is missing.
+      - IMAGE_REGISTRY=${IMAGE_REGISTRY}
+      - IMAGE_REPO_PREFIX=${IMAGE_REPO_PREFIX}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${COMPOSE_PROJECT_DIR}:${COMPOSE_PROJECT_DIR}
+      - updater_state:/app/state
+      - shared-config:/shared-config
+      - ./.env:/app/.env.client:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks:
+      - stack-net
+
+  # ── Public Agent (the public repo page's questions) ─────────────────────────
+  #
+  # TWO REPLICAS, ONE IMAGE, and haproxy already expects exactly these two names: `backend
+  # public_agent` in haproxy.cfg names `public-agent-1:3200` and `public-agent-2:3200`, and that config
+  # shipped in this package long before these services existed — so the route was live over a backend
+  # that could never come up, and every public question got the 503 errorfile. Renaming or dropping one
+  # of these puts that back.
+  #
+  # Round-robin with NO stickiness, which is safe for READING: the daily cap, the run's state and its
+  # trace all live in Redis, and the visitor handle authorises against Redis too, so either replica can
+  # serve any run id. The run ITSELF is not portable — it executes in the replica that started it
+  # (`runner.ts`), so losing that container ends that run while its chunks remain readable.
+  #
+  # No volumes: this service writes nothing to disk. State is Redis (cap, run state, trace) and Mongo
+  # (repo + MCP lookup, run history, cached answers).
+  #
+  # MCP grounding is NOT configured here. `resolveMcpCredentials` reads the publishing org's own
+  # `mcp_backend_address` from Mongo and only falls back to `MCP_BACKEND_ADDRESS` when an org carries
+  # none — so the address travels with the data, and a public HTTPS endpoint needs nothing on this
+  # network.
+  public-agent-1:
+    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:public-agent-${IMAGE_TAG:-latest}
+    <<: *registry-image
+    container_name: bb-stack-public-agent-1
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3200
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    networks:
+      - stack-net
+
+  public-agent-2:
+    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:public-agent-${IMAGE_TAG:-latest}
+    <<: *registry-image
+    container_name: bb-stack-public-agent-2
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3200
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    networks:
+      - stack-net
+
+  # ── Log Cleaner (prune logs older than 7 days) ─────────────────────────────
+  log-cleaner:
+    image: alpine:3.19
+    container_name: bb-stack-log-cleaner
+    restart: unless-stopped
+    volumes:
+      - ./logs:/logs
+    entrypoint: /bin/sh
+    command: >
+      -c "while true; do
+        echo \"[$(date)] Cleaning logs older than 7 days...\";
+        find /logs -type f -name '*.log' -mtime +7 -delete;
+        find /logs -mindepth 3 -type d -empty -delete;
+        echo \"[$(date)] Cleanup complete.\";
+        sleep 86400;
+      done"
+    networks:
+      - stack-net
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  redis_data:
+  updater_state:
+  shared-config:
+  conversation-ladybug:
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  stack-net:
+    name: bytebell-stack

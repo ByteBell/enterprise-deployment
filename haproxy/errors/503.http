@@ -1,0 +1,192 @@
+HTTP/1.0 503 Service Unavailable
+Cache-Control: no-cache
+Connection: close
+Content-Type: text/html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ByteBell — Unavailable</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #080808;
+      color: #e2e2e2;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      gap: 2.5rem;
+    }
+
+    .wordmark {
+      opacity: 0.35;
+      letter-spacing: -0.03em;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #e2e2e2;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 380px;
+      background: #0f0f0f;
+      border: 1px solid #1c1c1c;
+      border-radius: 16px;
+      padding: 2rem 2rem 1.75rem;
+      text-align: center;
+    }
+
+    .icon-ring {
+      width: 52px;
+      height: 52px;
+      margin: 0 auto 1.5rem;
+      border-radius: 50%;
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      background: rgba(239, 68, 68, 0.06);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.18);
+      border-radius: 20px;
+      padding: 4px 10px;
+      margin-bottom: 1.25rem;
+    }
+
+    .badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #ef4444;
+      animation: blink 2s ease-in-out infinite;
+    }
+
+    .badge-text {
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #ef4444;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.2; }
+    }
+
+    h1 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #e2e2e2;
+      line-height: 1.45;
+      margin-bottom: 0.55rem;
+    }
+
+    .desc {
+      font-size: 0.82rem;
+      color: #4a4a4a;
+      line-height: 1.65;
+    }
+
+    .sep {
+      height: 1px;
+      background: #161616;
+      margin: 1.5rem 0 1.25rem;
+    }
+
+    .contact {
+      font-size: 0.72rem;
+      color: #2e2e2e;
+    }
+  </style>
+</head>
+<body>
+  <div class="wordmark">ByteBell</div>
+
+  <div class="card">
+    <div class="icon-ring">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M9.17 4.93a7 7 0 015.66 0M4.93 9.17a7 7 0 000 5.66M9.17 19.07a7 7 0 005.66 0M19.07 14.83a7 7 0 000-5.66" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="4" y1="4" x2="20" y2="20" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </div>
+
+    <div class="badge">
+      <span class="badge-dot"></span>
+      <span class="badge-text" id="badge-label">Checking&hellip;</span>
+    </div>
+
+    <h1 id="err-title">Connecting to system</h1>
+    <p class="desc" id="err-desc">Fetching system status, please wait.</p>
+
+    <div class="sep"></div>
+    <p class="contact">Contact your administrator if this issue persists.</p>
+  </div>
+
+  <script>
+    var BADGE  = document.getElementById('badge-label');
+    var TITLE  = document.getElementById('err-title');
+    var DESC   = document.getElementById('err-desc');
+
+    var MSGS = {
+      revoked: {
+        badge: 'Access Revoked',
+        title: 'Your access has been revoked',
+        desc:  'This installation\u2019s access to the ByteBell platform has been revoked. Please contact your administrator to restore access.'
+      },
+      invalid: {
+        badge: 'Access Revoked',
+        title: 'Your access has been revoked',
+        desc:  'This installation\u2019s access to the ByteBell platform has been revoked. Please contact your administrator to restore access.'
+      },
+      expired: {
+        badge: 'System Unreachable',
+        title: 'System is currently unreachable',
+        desc:  'ByteBell cannot reach the licensing server and services have been paused. Please contact your administrator.'
+      },
+      degraded: {
+        badge: 'Degraded',
+        title: 'System temporarily unavailable',
+        desc:  'ByteBell is experiencing connectivity issues. Services may restart shortly.'
+      },
+      pending: {
+        badge: 'Starting Up',
+        title: 'System is starting up',
+        desc:  'ByteBell services are initializing. Please wait a moment and refresh the page.'
+      },
+      _fallback: {
+        badge: 'Offline',
+        title: 'System temporarily unavailable',
+        desc:  'ByteBell services are currently offline. Please contact your administrator.'
+      }
+    };
+
+    function render(key) {
+      var s = MSGS[key] || MSGS['_fallback'];
+      BADGE.textContent = s.badge;
+      TITLE.textContent = s.title;
+      DESC.textContent  = s.desc;
+    }
+
+    fetch('/system/status', { signal: AbortSignal.timeout(5000) })
+      .then(function(r) { return r.json(); })
+      .then(function(d) { render(d.license || '_fallback'); })
+      .catch(function()  { render('_fallback'); });
+  </script>
+</body>
+</html>
