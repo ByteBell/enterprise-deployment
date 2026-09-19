@@ -48,7 +48,7 @@ services:
     container_name: bb-stack-admin-ui
     restart: unless-stopped
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     environment:
       - VITE_BASE_URL=${VITE_BASE_URL:-/api/admin}
       - VITE_SUPPORT_EMAIL=${VITE_SUPPORT_EMAIL:-support@yourdomain.com}
@@ -91,7 +91,7 @@ services:
     restart: unless-stopped
     command: ["/app/bytebell-knowledge-server", "prod"]
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     volumes:
       - ./logs/knowledge-server:/app/logs
       - ./temp:/app/temp
@@ -123,7 +123,7 @@ services:
     restart: unless-stopped
     command: ["/app/bytebell-admin-server", "prod"]
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     volumes:
       - ./logs/admin-server:/app/logs
       - ./logs:/app/all-logs:ro
@@ -154,7 +154,7 @@ services:
     restart: unless-stopped
     command: ["/app/bytebell-email-dispatcher", "prod"]
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     volumes:
       - ./logs/email-dispatcher:/app/logs
     environment:
@@ -177,7 +177,7 @@ services:
     container_name: bb-stack-conversation-memory
     restart: unless-stopped
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     environment:
       NODE_ENV: ${NODE_ENV:-development}
     volumes:
@@ -202,7 +202,7 @@ services:
     container_name: bb-stack-mcp-1
     restart: unless-stopped
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     environment:
       - NODE_ENV=${NODE_ENV:-development}
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
@@ -231,7 +231,7 @@ services:
     container_name: bb-stack-mcp-2
     restart: unless-stopped
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     environment:
       - NODE_ENV=${NODE_ENV:-development}
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
@@ -260,7 +260,7 @@ services:
     container_name: bb-stack-mcp-3
     restart: unless-stopped
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     environment:
       - NODE_ENV=${NODE_ENV:-development}
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
@@ -289,7 +289,7 @@ services:
     container_name: bb-stack-mcp-4
     restart: unless-stopped
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     environment:
       - NODE_ENV=${NODE_ENV:-development}
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
@@ -325,7 +325,7 @@ services:
       # UPDATE_API_TOKEN, but a token is the second line of defence, not the first.
       - "127.0.0.1:3003:3003"
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     environment:
       # system-manager must stay on 3003 (haproxy + app config-fetch + healthcheck all target :3003).
       # Pin it here so the shared .env PORT (=3002, for admin-server) can't move system-manager off 3003.
@@ -399,7 +399,7 @@ services:
     container_name: bb-stack-public-agent-1
     restart: unless-stopped
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3200
@@ -418,7 +418,7 @@ services:
     container_name: bb-stack-public-agent-2
     restart: unless-stopped
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3200

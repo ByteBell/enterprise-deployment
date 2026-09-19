@@ -1,6 +1,7 @@
 # Plumbline — enterprise deployment
 
-Everything needed to run Plumbline on your own server. Four files, four commands.
+Everything needed to run Plumbline on your own server — on a real host or on a laptop, from the
+same files.
 
 This repository is public and contains **no credentials and no source code** — only the compose
 file, the proxy config, and an environment template. The images themselves live in a private
@@ -9,11 +10,24 @@ registry, and you need a read-only token from ByteBell to pull them.
 ```bash
 git clone https://github.com/ByteBell/enterprise-deployment.git plumbline
 cd plumbline
-cp .env.example .env      # fill it in — see Step 3
-make login
-make up
-make verify
+cp .env.production.example .production.env   # fill it in — see Step 3
+make up prod                                 # checks, logs in, pulls, starts
+make verify prod
 ```
+
+`make up` is the whole deployment: it checks the env file, authenticates to the registry, pulls
+every image from Docker Hub, and starts the stack. There is no separate pull step to remember.
+
+Trying it on a laptop first? Every target takes `dev` instead, which reads `.env` and expects the
+stack at `http://localhost`:
+
+```bash
+cp .env.example .env
+make up dev
+```
+
+`dev` is the default, so a bare `make up` is the local one. Production is never what you get by
+forgetting to say which.
 
 ---
 
@@ -91,14 +105,26 @@ git clone https://github.com/ByteBell/enterprise-deployment.git /opt/plumbline
 cd /opt/plumbline
 ```
 
-Any directory works; `COMPOSE_PROJECT_DIR` in `.env` must be its absolute path.
+Any directory works; `COMPOSE_PROJECT_DIR` in your env file must be its absolute path.
 
 ## Step 3 — Configure
 
+There are two templates. They are the same document with different values — copy the one that
+matches where this is running:
+
+| Running on | Copy | To | Then |
+| --- | --- | --- | --- |
+| A real host, own domain | `.env.production.example` | `.production.env` | `make up prod` |
+| A laptop or test box | `.env.example` | `.env` | `make up dev` |
+
 ```bash
-cp .env.example .env
-$EDITOR .env
+cp .env.production.example .production.env
+$EDITOR .production.env
 ```
+
+**Keep the two files separate and complete.** Do not turn one into a base that the other adds to.
+When two files both define a key, the last one read silently wins — and the definition that lost
+still sits there reading as though it were in force.
 
 Work top to bottom. Every `[REQUIRED]` line must be filled; each one says what it is for. Generate
 the two secrets rather than inventing them:
@@ -110,7 +136,9 @@ openssl rand -hex 32     # UPDATE_API_TOKEN
 
 Two that are easy to get wrong:
 
-- **`IMAGE_TAG`** — there is no `latest` tag in the repository. Unset, every pull fails with a 404.
+- **`IMAGE_TAG`** — leave it blank to run the newest published release; `make up` looks it up and
+  prints what it chose. Pin it to a version to keep a deployment still, and to roll back — a
+  pinned tag is never looked up or moved.
 - **`JWT_SECRET`** — it signs sessions *and* derives the encryption key for stored credentials.
   Changing it later signs everyone out and makes previously stored secrets unreadable. Set it once
   and back it up.
@@ -118,7 +146,7 @@ Two that are easy to get wrong:
 Then check yourself before starting anything:
 
 ```bash
-make preflight
+make preflight prod
 ```
 
 It names any missing value instead of letting a container exit three layers down.
@@ -126,10 +154,11 @@ It names any missing value instead of letting a container exit three layers down
 ## Step 4 — Start
 
 ```bash
-make login    # authenticate to the private registry
-make up       # create directories, pull images, start everything
-make verify   # prove it is actually serving
+make up prod       # check, authenticate, pull every image, start everything
+make verify prod   # prove it is actually serving
 ```
+
+On a laptop, say `dev` instead of `prod` in each — or leave it off, since `dev` is the default.
 
 `make verify` is not the same as "the containers are up". It checks the HAProxy backends and the
 endpoints, because a live route in front of a dead backend answers 503 and still looks healthy in
@@ -140,24 +169,29 @@ empty question. A 503 there means HAProxy is up and `public-agent` is not.
 
 ## Day to day
 
+Every target takes `dev` or `prod` as its last word, and `dev` is what you get if you omit it:
+
 ```bash
-make ps                     # what is running
-make logs                   # follow everything
-make logs s=knowledge-server  # follow one service
-make restart                # restart all services
-make down                   # stop (volumes, and so your data, are kept)
+make ps prod                       # what is running
+make logs prod                     # follow everything
+make logs s=knowledge-server prod  # follow one service
+make restart prod                  # restart all services
+make down prod                     # stop (volumes, and so your data, are kept)
 ```
 
 ### Upgrading
 
 ```bash
-$EDITOR .env      # set the new IMAGE_TAG
-make update       # pull it and replace the running containers
-make verify
+$EDITOR .production.env   # set the new IMAGE_TAG
+make update prod          # pull it and replace the running containers
+make verify prod
 ```
 
-Compose recreates only the services whose image actually changed. To roll back, put the previous tag
-in `IMAGE_TAG` and run `make update` again — the old images are still in the registry.
+With `IMAGE_TAG` blank, `make update prod` moves you to the newest release each time it runs.
+
+Compose recreates only the services whose image actually changed. To roll back, put the previous
+tag in `IMAGE_TAG` and run `make update prod` again — the old images are still in the registry,
+and a pinned tag stops the lookup, so you stay there until you clear it.
 
 ---
 
@@ -209,8 +243,9 @@ default), `make login` must too. Re-run `make login`, then `make pull`.
 ByteBell.
 
 **A container exits immediately, log names a variable**
-A required value is missing from `.env`. That is the intended behaviour — a container that cannot
-serve should not report healthy. Run `make preflight`.
+A required value is missing from your env file. That is the intended behaviour — a container that
+cannot serve should not report healthy. Run `make preflight prod` (or `dev`), which also reports a
+key defined twice, where the later definition quietly overrides the one you are reading.
 
 **`make verify` shows a backend DOWN**
 That service did not start. `make logs s=<service>` — the name is in the table at the top.

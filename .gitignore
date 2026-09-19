@@ -3,7 +3,13 @@
 # a timestamped backup is the usual way one gets published by accident.
 .env
 .env.*
+# `.env.*` does NOT match `.production.env` — the name does not start with `.env.`. Without this
+# line the production file, which holds every credential the deployment has, is untracked rather
+# than ignored, and one `git add -A` publishes it on a public repository.
+*.env
+# Negations last, so the templates — which contain no values — stay tracked.
 !.env.example
+!.env.production.example
 
 # Created at runtime by the stack.
 logs/
