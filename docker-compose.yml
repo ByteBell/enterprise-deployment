@@ -89,7 +89,7 @@ services:
     <<: *registry-image
     container_name: bb-stack-knowledge
     restart: unless-stopped
-    command: ["/app/bytebell-knowledge-server", "prod"]
+    command: ["/app/bytebell-knowledge-server"]
     env_file:
       - ${ENV_FILE:-.env}
     volumes:
@@ -110,8 +110,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      system-manager:
-        condition: service_healthy
     networks:
       - stack-net
 
@@ -121,7 +119,7 @@ services:
     <<: *registry-image
     container_name: bb-stack-admin
     restart: unless-stopped
-    command: ["/app/bytebell-admin-server", "prod"]
+    command: ["/app/bytebell-admin-server"]
     env_file:
       - ${ENV_FILE:-.env}
     volumes:
@@ -141,8 +139,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      system-manager:
-        condition: service_healthy
     networks:
       - stack-net
 
@@ -152,7 +148,7 @@ services:
     <<: *registry-image
     container_name: bb-stack-email-dispatcher
     restart: unless-stopped
-    command: ["/app/bytebell-email-dispatcher", "prod"]
+    command: ["/app/bytebell-email-dispatcher"]
     env_file:
       - ${ENV_FILE:-.env}
     volumes:
@@ -164,8 +160,6 @@ services:
       - "host.docker.internal:host-gateway"
     depends_on:
       redis:
-        condition: service_healthy
-      system-manager:
         condition: service_healthy
     networks:
       - stack-net
@@ -189,9 +183,6 @@ services:
       timeout: 5s
       retries: 30
       start_period: 60s
-    depends_on:
-      system-manager:
-        condition: service_healthy
     networks:
       - stack-net
 
@@ -313,7 +304,19 @@ services:
       - stack-net
 
   # ── System Manager (license gate + autonomous service updates) ──────────────
+  # SWITCHED OFF. Behind a profile, so a normal `make up` does not start it, and
+  # `docker compose --profile system-manager up -d system-manager` brings it back.
+  #
+  # It is not just one fewer container: the three app services ran with the `prod`
+  # runtime argument, which makes @bytebell/config source every dynamic key from this
+  # service's /config and REFUSE TO START when it is unreachable — so a system-manager
+  # that failed took the whole stack down with it. That argument is gone with it, and
+  # each service now reads its env file directly.
+  #
+  # Consequence: the licence gate no longer runs, and a key that only ever lived in
+  # etcd must be present in the env file or it is simply unset.
   system-manager:
+    profiles: ["system-manager"]
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:system-manager-${IMAGE_TAG:-latest}
     <<: *registry-image
     container_name: bb-stack-system-manager
