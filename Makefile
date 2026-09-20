@@ -79,9 +79,13 @@ export IMAGE_TAG
 # `sudo` resets the environment, so a resolved IMAGE_TAG and the selected ENV_FILE never reach
 # docker on their own — they have to be handed over explicitly. Without sudo, `export` above is
 # enough and DOCKER is used unchanged.
+# LLM provider profiles. The env file names them (LLM_PROFILE / INGEST_PROFILE → llm/<name>.env,
+# loaded by every service's env_file: list); `make up prod LLM=openrouter INGEST=baseten` overrides
+# them for one invocation — a shell variable outranks --env-file in compose interpolation.
+PROFILE_ENV = $(if $(LLM),LLM_PROFILE=$(LLM)) $(if $(INGEST),INGEST_PROFILE=$(INGEST))
 DOCKER_ENV = $(if $(filter sudo,$(firstword $(DOCKER))),\
-               sudo env IMAGE_TAG=$(IMAGE_TAG) ENV_FILE=$(ENV_FILE) $(wordlist 2,99,$(DOCKER)),\
-               $(DOCKER))
+               sudo env IMAGE_TAG=$(IMAGE_TAG) ENV_FILE=$(ENV_FILE) $(PROFILE_ENV) $(wordlist 2,99,$(DOCKER)),\
+               $(PROFILE_ENV) $(DOCKER))
 
 # Both are needed and they are NOT the same thing. `--env-file` feeds ${VAR} substitution in
 # docker-compose.yml; the exported ENV_FILE is what the `env_file:` entries inside it expand to,
