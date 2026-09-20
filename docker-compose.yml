@@ -51,6 +51,7 @@ services:
       - ${ENV_FILE:-.env}
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
+      - llm/fallback-${FALLBACK_PROFILE}.env
     environment:
       - VITE_BASE_URL=${VITE_BASE_URL:-/api/admin}
       - VITE_SUPPORT_EMAIL=${VITE_SUPPORT_EMAIL:-support@yourdomain.com}
@@ -96,6 +97,7 @@ services:
       - ${ENV_FILE:-.env}
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
+      - llm/fallback-${FALLBACK_PROFILE}.env
     volumes:
       - ./logs/knowledge-server:/app/logs
       - ./temp:/app/temp
@@ -128,6 +130,7 @@ services:
       - ${ENV_FILE:-.env}
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
+      - llm/fallback-${FALLBACK_PROFILE}.env
     volumes:
       - ./logs/admin-server:/app/logs
       - ./logs:/app/all-logs:ro
@@ -159,6 +162,7 @@ services:
       - ${ENV_FILE:-.env}
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
+      - llm/fallback-${FALLBACK_PROFILE}.env
     volumes:
       - ./logs/email-dispatcher:/app/logs
     environment:
@@ -182,6 +186,7 @@ services:
       - ${ENV_FILE:-.env}
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
+      - llm/fallback-${FALLBACK_PROFILE}.env
     environment:
       NODE_ENV: ${NODE_ENV:-development}
     volumes:
@@ -206,6 +211,7 @@ services:
       - ${ENV_FILE:-.env}
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
+      - llm/fallback-${FALLBACK_PROFILE}.env
     environment:
       - NODE_ENV=${NODE_ENV:-development}
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
@@ -237,6 +243,7 @@ services:
       - ${ENV_FILE:-.env}
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
+      - llm/fallback-${FALLBACK_PROFILE}.env
     environment:
       - NODE_ENV=${NODE_ENV:-development}
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
@@ -268,6 +275,7 @@ services:
       - ${ENV_FILE:-.env}
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
+      - llm/fallback-${FALLBACK_PROFILE}.env
     environment:
       - NODE_ENV=${NODE_ENV:-development}
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
@@ -299,6 +307,7 @@ services:
       - ${ENV_FILE:-.env}
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
+      - llm/fallback-${FALLBACK_PROFILE}.env
     environment:
       - NODE_ENV=${NODE_ENV:-development}
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
@@ -349,6 +358,7 @@ services:
       - ${ENV_FILE:-.env}
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
+      - llm/fallback-${FALLBACK_PROFILE}.env
     environment:
       # system-manager must stay on 3003 (haproxy + app config-fetch + healthcheck all target :3003).
       # Pin it here so the shared .env PORT (=3002, for admin-server) can't move system-manager off 3003.
@@ -425,6 +435,7 @@ services:
       - ${ENV_FILE:-.env}
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
+      - llm/fallback-${FALLBACK_PROFILE}.env
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3200
@@ -446,6 +457,7 @@ services:
       - ${ENV_FILE:-.env}
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
+      - llm/fallback-${FALLBACK_PROFILE}.env
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3200

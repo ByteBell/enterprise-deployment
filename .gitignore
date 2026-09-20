@@ -14,3 +14,6 @@
 # Created at runtime by the stack.
 logs/
 temp/
+# The one real profile that is tracked: it names NO provider and holds no secret, and every
+# deployment has to be able to select it (FALLBACK_PROFILE=none).
+!llm/fallback-none.env

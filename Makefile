@@ -80,9 +80,9 @@ export IMAGE_TAG
 # docker on their own — they have to be handed over explicitly. Without sudo, `export` above is
 # enough and DOCKER is used unchanged.
 # LLM provider profiles. The env file names them (LLM_PROFILE / INGEST_PROFILE → llm/<name>.env,
-# loaded by every service's env_file: list); `make up prod LLM=openrouter INGEST=baseten` overrides
+# loaded by every service's env_file: list); `make up prod LLM=openrouter INGEST=baseten FALLBACK=none` overrides
 # them for one invocation — a shell variable outranks --env-file in compose interpolation.
-PROFILE_ENV = $(if $(LLM),LLM_PROFILE=$(LLM)) $(if $(INGEST),INGEST_PROFILE=$(INGEST))
+PROFILE_ENV = $(if $(LLM),LLM_PROFILE=$(LLM)) $(if $(INGEST),INGEST_PROFILE=$(INGEST)) $(if $(FALLBACK),FALLBACK_PROFILE=$(FALLBACK))
 DOCKER_ENV = $(if $(filter sudo,$(firstword $(DOCKER))),\
                sudo env IMAGE_TAG=$(IMAGE_TAG) ENV_FILE=$(ENV_FILE) $(PROFILE_ENV) $(wordlist 2,99,$(DOCKER)),\
                $(PROFILE_ENV) $(DOCKER))
