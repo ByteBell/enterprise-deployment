@@ -145,8 +145,8 @@ preflight:
 	$(call require_env)
 	@missing=""; for k in IMAGE_REGISTRY IMAGE_REPO_PREFIX IMAGE_REPO_NAME REGISTRY_USERNAME \
 	  REGISTRY_TOKEN COMPOSE_PROJECT_DIR MONGODB_URI NEO4J_URI NEO4J_PASSWORD JWT_SECRET \
-	  UPDATE_API_TOKEN S3_FILES_BUCKET FRONTEND_BASE_URL AGENT_LLM_BASE_URL AGENT_LLM_API_KEY \
-	  AGENT_MODEL; do \
+	  UPDATE_API_TOKEN S3_FILES_BUCKET FRONTEND_BASE_URL LLM_PROFILE INGEST_PROFILE \
+	  FALLBACK_PROFILE AGENT_PROFILE; do \
 	  v=$$(grep -E "^[[:space:]]*$$k=" $(ENV_FILE) | tail -1 | cut -d= -f2-); \
 	  [ -z "$$v" ] && missing="$$missing $$k"; \
 	done; \
@@ -158,6 +158,25 @@ preflight:
 	  echo "  The LAST definition wins and the earlier one is invisible. Delete the duplicates."; \
 	  exit 1; \
 	fi
+	@# A profile is a FILE named by its slot. A slot naming a file that is not there is what compose
+	@# would refuse on at start; a blank key inside the agent profile is what public-agent would
+	@# refuse to BOOT on. Both are caught here, by name, rather than three layers down.
+	@missing=""; for slot in LLM_PROFILE:llm/%s.env INGEST_PROFILE:llm/ingest-%s.env \
+	  FALLBACK_PROFILE:llm/fallback-%s.env AGENT_PROFILE:llm/agent-%s.env; do \
+	  k=$${slot%%:*}; pat=$${slot#*:}; \
+	  name=$$(grep -E "^[[:space:]]*$$k=" $(ENV_FILE) | tail -1 | cut -d= -f2-); \
+	  f=$$(printf "$$pat" "$$name"); \
+	  [ -f "$$f" ] || missing="$$missing $$k=$$name->$$f"; \
+	done; \
+	if [ -n "$$missing" ]; then echo "✗ a profile named in $(ENV_FILE) has no file:"; for m in $$missing; do echo "    $$m"; done; \
+	  echo "  Copy the matching llm/*.env.example to that name and fill it in — see README, Step 3b."; exit 1; fi
+	@agent=$$(grep -E "^[[:space:]]*AGENT_PROFILE=" $(ENV_FILE) | tail -1 | cut -d= -f2-); f="llm/agent-$$agent.env"; missing=""; \
+	for k in AGENT_LLM_BASE_URL AGENT_LLM_API_KEY AGENT_MODEL AGENT_REASONING_EFFORT AGENT_MAX_COMPLETION_TOKENS; do \
+	  v=$$(grep -E "^[[:space:]]*$$k=" "$$f" | tail -1 | cut -d= -f2-); \
+	  [ -z "$$v" ] && missing="$$missing $$k"; \
+	done; \
+	if [ -n "$$missing" ]; then echo "✗ $$f is missing values:"; for m in $$missing; do echo "    $$m"; done; \
+	  echo "  public-agent refuses to start without every one of these."; exit 1; fi
 	@origin=$$(grep -E "^[[:space:]]*FRONTEND_BASE_URL=" $(ENV_FILE) | tail -1 | cut -d= -f2-); \
 	case "$(BB_ENV)-$$origin" in \
 	  prod-http://localhost*|prod-https://localhost*) \
