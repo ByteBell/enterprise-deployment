@@ -177,6 +177,24 @@ preflight:
 	done; \
 	if [ -n "$$missing" ]; then echo "✗ $$f is missing values:"; for m in $$missing; do echo "    $$m"; done; \
 	  echo "  public-agent refuses to start without every one of these."; exit 1; fi
+	@# The knowledge server's boot gate, mirrored. It refuses to start unless the deployment route has
+	@# a credential and a top tier, and unless every IR phase on a provider OTHER than the deployment's
+	@# carries its own credential and at least one tier — a phase cannot inherit either across a
+	@# provider boundary. Assumes hosted providers; a keyless one (ollama, claude-cli) would be
+	@# over-checked here and is not something this stack deploys. Measured on a real upgrade: the
+	@# ingest template ships FILE_LLM_API_KEY blank, and the server crash-looped on exactly that.
+	@get() { grep -E "^[[:space:]]*$$2=" "$$1" 2>/dev/null | tail -1 | cut -d= -f2-; }; \
+	llm=$$(get $(ENV_FILE) LLM_PROFILE); lf="llm/$$llm.env"; ing=$$(get $(ENV_FILE) INGEST_PROFILE); inf="llm/ingest-$$ing.env"; missing=""; \
+	for k in LLM_PROVIDER LLM_API_KEY SMARTEST_MODEL_NAME; do [ -n "$$(get $$lf $$k)" ] || missing="$$missing $$lf:$$k"; done; \
+	dep=$$(get $$lf LLM_PROVIDER); \
+	for ph in FILE UNIT; do prov=$$(get $$inf $${ph}_LLM_PROVIDER); \
+	  if [ -n "$$prov" ] && [ "$$prov" != "$$dep" ]; then \
+	    [ -n "$$(get $$inf $${ph}_LLM_API_KEY)" ] || missing="$$missing $$inf:$${ph}_LLM_API_KEY"; \
+	    [ -n "$$(get $$inf $${ph}_SMART_MODELS)$$(get $$inf $${ph}_SMARTER_MODELS)$$(get $$inf $${ph}_SMARTEST_MODELS)" ] || missing="$$missing $$inf:$${ph}_SMART*_MODELS"; \
+	  fi; \
+	done; \
+	if [ -n "$$missing" ]; then echo "✗ the knowledge server would refuse to boot — blank in a profile:"; for m in $$missing; do echo "    $$m"; done; \
+	  echo "  A phase on a provider other than LLM_PROVIDER cannot inherit the deployment's key or tiers; set its own."; exit 1; fi
 	@origin=$$(grep -E "^[[:space:]]*FRONTEND_BASE_URL=" $(ENV_FILE) | tail -1 | cut -d= -f2-); \
 	case "$(BB_ENV)-$$origin" in \
 	  prod-http://localhost*|prod-https://localhost*) \
