@@ -151,6 +151,70 @@ make preflight prod
 
 It names any missing value instead of letting a container exit three layers down.
 
+## Step 3b — Choose your LLM providers
+
+Nothing provider-specific belongs in your env file. Each provider's complete configuration — its
+name, its credential, its model ids and its endpoint — is **one file under `llm/`**, and your env
+file names which of those files to read. Switching provider is changing one word; it is never
+uncommenting a block.
+
+Four slots, because these four jobs have genuinely different needs and one choice cannot serve all
+of them:
+
+| Slot | Drives | Reads | Why it is its own slot |
+| --- | --- | --- | --- |
+| `LLM_PROFILE` | answers, summaries, query enrichment | `llm/<name>.env` | Wants a cheap-first tier chain |
+| `INGEST_PROFILE` | the two IR phases, `FILE_*` and `UNIT_*` | `llm/ingest-<name>.env` | Tens of thousands of short calls per repo |
+| `FALLBACK_PROFILE` | where a call goes while its provider refuses on capacity | `llm/fallback-<name>.env` | Must NOT name the same provider as `LLM_PROFILE` |
+| `AGENT_PROFILE` | the public repo page — question runs and PR reviews | `llm/agent-<name>.env` | A long tool-calling loop wanting one strong model with reasoning on |
+
+Copy the templates you need and fill in the credential:
+
+```bash
+cp llm/gemini.env.example         llm/gemini.env
+cp llm/ingest-baseten.env.example llm/ingest-baseten.env
+cp llm/agent-baseten.env.example  llm/agent-baseten.env
+$EDITOR llm/*.env
+```
+
+Then name them in your env file:
+
+```
+LLM_PROFILE=gemini
+INGEST_PROFILE=baseten
+FALLBACK_PROFILE=openrouter
+AGENT_PROFILE=baseten
+```
+
+`llm/*.env` is gitignored — the templates are tracked, your filled-in copies are not. **A profile
+you name must exist.** An unset or misspelled slot resolves to a file that is not there and compose
+refuses to start anything, which is the intended loud failure rather than a container that boots
+without a credential.
+
+`FALLBACK_PROFILE=none` disables failover and rotates within the provider's own tiers instead.
+
+### The agent profile carries an operating mode, not just a credential
+
+`llm/agent-<name>.env` sets four keys that move together, and the last two are the ones people miss:
+
+```
+AGENT_LLM_BASE_URL=https://inference.baseten.co/v1
+AGENT_LLM_API_KEY=
+AGENT_MODEL=deepseek-ai/DeepSeek-V4-Pro
+AGENT_REASONING_EFFORT=medium
+AGENT_MAX_COMPLETION_TOKENS=8096
+```
+
+All four are **required** — `public-agent` refuses to start if any is unset, rather than guessing.
+
+Reasoning is charged against the completion ceiling on these providers, whatever their docs say, so
+the last two are one setting in two fields. Measured on a pull-request review (2026-09-21): at
+`high` effort with a 4096 ceiling the model reasoned out a verdict for every hunk and was then cut
+off mid-sentence having emitted no tool calls at all — a turn that cost a full completion and
+delivered nothing, ending the review with 0 of 13 hunks reported. At `medium` with 8096 the same
+review reported all 13. **If you want more thinking, raise the ceiling before raising the effort.**
+The failure mode is an empty turn, not a shallow one.
+
 ## Step 4 — Start
 
 ```bash
@@ -188,6 +252,23 @@ make verify prod
 ```
 
 With `IMAGE_TAG` blank, `make update prod` moves you to the newest release each time it runs.
+
+**Upgrading onto the release that introduced `AGENT_PROFILE` needs one extra step, once.** The
+public-agent credential used to sit in your env file as `AGENT_LLM_BASE_URL` / `AGENT_LLM_API_KEY` /
+`AGENT_MODEL`. It now lives in a profile, so before `make update`:
+
+```bash
+cp llm/agent-baseten.env.example llm/agent-baseten.env
+$EDITOR llm/agent-baseten.env          # paste the key your env file had
+echo 'AGENT_PROFILE=baseten' >> .production.env
+```
+
+Then delete those three `AGENT_LLM_*` lines from `.production.env`. Compose loads the profile AFTER
+your env file, so a copy left behind is shadowed rather than used — but leaving it there means a
+credential sitting in two places, one of which no longer does anything.
+
+`public-agent` refuses to start without all four profile keys, so a missed step fails at boot with
+the name of the key, not later with a 500.
 
 Compose recreates only the services whose image actually changed. To roll back, put the previous
 tag in `IMAGE_TAG` and run `make update prod` again — the old images are still in the registry,
