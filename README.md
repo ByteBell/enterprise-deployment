@@ -270,6 +270,19 @@ credential sitting in two places, one of which no longer does anything.
 `public-agent` refuses to start without all four profile keys, so a missed step fails at boot with
 the name of the key, not later with a 500.
 
+**If preflight reports `LLM_PROFILE`, `INGEST_PROFILE` and `FALLBACK_PROFILE` missing**, your env
+file predates the profile system altogether and still carries every provider inline. Do Step 3b in
+full, moving values rather than retyping them:
+
+| Your inline keys | Go into | Then set |
+| --- | --- | --- |
+| `LLM_PROVIDER`, `LLM_API_KEY`, `SMART*_MODEL_NAME` | `llm/<provider>.env` | `LLM_PROFILE=<provider>` |
+| `FILE_LLM_*`, `FILE_SMART*_MODELS`, `UNIT_LLM_*`, `UNIT_SMART*_MODELS` | `llm/ingest-<provider>.env` | `INGEST_PROFILE=<provider>` |
+| nothing — `llm/fallback-none.env` is already in the repo | — | `FALLBACK_PROFILE=none` |
+
+Delete the inline keys afterwards for the same reason as above: a copy left behind is shadowed by
+the profile and reads as though it were in force.
+
 Compose recreates only the services whose image actually changed. To roll back, put the previous
 tag in `IMAGE_TAG` and run `make update prod` again — the old images are still in the registry,
 and a pinned tag stops the lookup, so you stay there until you clear it.
