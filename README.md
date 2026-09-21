@@ -243,6 +243,40 @@ make restart prod                  # restart all services
 make down prod                     # stop (volumes, and so your data, are kept)
 ```
 
+### Logs
+
+`make logs` follows live, starts with the last 200 lines, and takes one or more service names in
+`s=`. `Ctrl-C` stops following and touches nothing.
+
+```bash
+make logs prod s="public-agent-1 public-agent-2"                        # both public agents
+make logs prod s="knowledge-server"                                      # the knowledge server
+make logs prod s="mcp-server-1 mcp-server-2 mcp-server-3 mcp-server-4"  # all four MCP replicas
+make logs prod                                                           # everything in the stack
+```
+
+All seven of those in one interleaved stream, each line prefixed with its service:
+
+```bash
+make logs prod s="public-agent-1 public-agent-2 knowledge-server mcp-server-1 mcp-server-2 mcp-server-3 mcp-server-4"
+```
+
+For one container's recent output without following, use its container name:
+
+```bash
+sudo docker logs bb-stack-knowledge --tail 200
+sudo docker logs bb-stack-public-agent-1 --since 10m
+sudo docker logs bb-stack-mcp-3 --tail 500 2>&1 | grep -i error
+```
+
+Container names are `bb-stack-<service>`; MCP replicas are `bb-stack-mcp-1` to `-4` and the public
+agents `bb-stack-public-agent-1` and `-2`.
+
+**When chasing one review or question:** the four MCP replicas sit behind HAProxy with sticky
+sessions keyed on `mcp-session-id`, so every graph call of a single run lands on ONE replica.
+`docker logs` on that replica is far less noise than the four-way stream. HAProxy's own log
+(`sudo docker logs bb-stack-haproxy`) shows which backend each session was pinned to.
+
 ### Upgrading
 
 ```bash
