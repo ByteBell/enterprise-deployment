@@ -109,20 +109,28 @@ Any directory works; `COMPOSE_PROJECT_DIR` in your env file must be its absolute
 
 ## Step 3 — Configure
 
-There are two templates. They are the same document with different values — copy the one that
+There are three templates. They are the same document with different values — copy the one that
 matches where this is running:
 
 | Running on | Copy | To | Then |
 | --- | --- | --- | --- |
 | A real host, own domain | `.env.production.example` | `.production.env` | `make up prod` |
-| A laptop or test box | `.env.example` | `.env` | `make up dev` |
+| A laptop or test box, databases run elsewhere | `.env.example` | `.env` | `make up dev` |
+| A laptop, nothing run elsewhere | `.env.localhost.example` | `.localhost.env` | `make up localhost` |
+
+`localhost` is the self-contained one: it starts MongoDB and Neo4j as containers in this compose
+file (behind the `localhost` compose profile, so `dev` and `prod` never see them) and its template
+already points `MONGODB_URI` and `NEO4J_URI` at them. What is left to fill in is a Neo4j password,
+the registry credential, your S3 bucket and the provider keys. Both databases keep their data in
+Docker volumes (`mongo_data`, `neo4j_data`) and publish loopback-only ports for `mongosh` and the
+Neo4j browser; move a port in `.localhost.env` if the default is already taken on your machine.
 
 ```bash
 cp .env.production.example .production.env
 $EDITOR .production.env
 ```
 
-**Keep the two files separate and complete.** Do not turn one into a base that the other adds to.
+**Keep the files separate and complete.** Do not turn one into a base that another adds to.
 When two files both define a key, the last one read silently wins — and the definition that lost
 still sits there reading as though it were in force.
 
@@ -223,6 +231,8 @@ make verify prod   # prove it is actually serving
 ```
 
 On a laptop, say `dev` instead of `prod` in each — or leave it off, since `dev` is the default.
+With `localhost`, `make up` brings MongoDB and Neo4j to healthy first and only then starts the
+services, and `make verify` checks both databases before the HAProxy backends.
 
 `make verify` is not the same as "the containers are up". It checks the HAProxy backends and the
 endpoints, because a live route in front of a dead backend answers 503 and still looks healthy in
@@ -233,7 +243,8 @@ empty question. A 503 there means HAProxy is up and `public-agent` is not.
 
 ## Day to day
 
-Every target takes `dev` or `prod` as its last word, and `dev` is what you get if you omit it:
+Every target takes `dev`, `prod` or `localhost` as its last word, and `dev` is what you get if you
+omit it:
 
 ```bash
 make ps prod                       # what is running
@@ -393,5 +404,6 @@ Application data lives in your MongoDB, your Neo4j and your S3 bucket — back t
 any database.
 
 On the host itself, these Docker volumes hold state: `redis_data` (queues in flight),
-`conversation-ladybug` (chat memory), `updater_state` and `shared-config`. `make down` keeps them;
-`docker compose down -v` destroys them.
+`conversation-ladybug` (chat memory), `updater_state` and `shared-config`. Under `localhost`,
+`mongo_data` and `neo4j_data` are the databases themselves — there is no copy anywhere else.
+`make down` keeps them; `docker compose down -v` destroys them.

@@ -1,4 +1,4 @@
-.PHONY: dev prod help preflight login pull up down restart ps logs verify update dirs
+.PHONY: dev prod localhost help preflight login pull up down restart ps logs verify update dirs
 
 # `sudo` by default, because that is how Docker is installed on a fresh Ubuntu host: the daemon
 # socket is root-owned until your user is in the `docker` group AND you have logged out and back in.
@@ -13,19 +13,26 @@ DOCKER ?= sudo docker
 
 # ── Which deployment this invocation is for ──────────────────────────────────
 #
-#     make up prod     → .production.env    the real host, on its own domain
-#     make up dev      → .env               a laptop or test box, on http://localhost
-#     make up          → .env               same as dev; the default is never production
+#     make up prod       → .production.env    the real host, on its own domain
+#     make up dev        → .env               a laptop or test box, on http://localhost, using
+#                                             databases you already run somewhere
+#     make up localhost  → .localhost.env     the same, plus MongoDB and Neo4j started HERE as
+#                                             containers (the `localhost` compose profile)
+#     make up            → .env               same as dev; the default is never production
 #
-# `dev` and `prod` are GOALS rather than variables, so they are read out of MAKECMDGOALS and
-# declared as do-nothing targets below.
+# `dev`, `prod` and `localhost` are GOALS rather than variables, so they are read out of
+# MAKECMDGOALS and declared as do-nothing targets below.
 #
 # ONE COMPLETE FILE PER DEPLOYMENT, not a shared base with an overlay. Two files that both define
 # a key are how a stack ends up running settings nobody can see in the file they are reading: the
 # last definition silently wins, and the losing one looks perfectly correct sitting above it.
-BB_ENV        := $(if $(filter prod,$(MAKECMDGOALS)),prod,dev)
+BB_ENV        := $(if $(filter prod,$(MAKECMDGOALS)),prod,$(if $(filter localhost,$(MAKECMDGOALS)),localhost,dev))
 ENV_FILE_dev   = .env
 ENV_FILE_prod  = .production.env
+ENV_FILE_localhost = .localhost.env
+# The two database containers exist only under this compose profile, so only `localhost` sees
+# them — in `ps`, `logs`, `pull`, `up` and `down` alike. `dev` and `prod` never start a database.
+COMPOSE_PROFILE := $(if $(filter localhost,$(BB_ENV)),--profile localhost)
 ENV_FILE      := $(ENV_FILE_$(BB_ENV))
 export ENV_FILE
 
@@ -91,21 +98,22 @@ DOCKER_ENV = $(if $(filter sudo,$(firstword $(DOCKER))),\
 # docker-compose.yml; the exported ENV_FILE is what the `env_file:` entries inside it expand to,
 # and those the flag does not touch. Set only one and the containers read one file while the
 # compose file was interpolated from another — the values disagree and nothing reports it.
-COMPOSE = $(DOCKER_ENV) compose --env-file $(ENV_FILE)
+COMPOSE = $(DOCKER_ENV) compose --env-file $(ENV_FILE) $(COMPOSE_PROFILE)
 
 # Refuse rather than fall back. Silently using .env because .production.env is absent is how a
 # laptop's settings reach a production host.
 define require_env
 	@test -f $(ENV_FILE) || { \
 		echo "✗ $(BB_ENV) needs $(ENV_FILE), which does not exist."; \
-		echo "    dev  → .env              cp .env.example .env"; \
-		echo "    prod → .production.env   cp .env.production.example .production.env"; \
+		echo "    dev       → .env              cp .env.example .env"; \
+		echo "    prod      → .production.env   cp .env.production.example .production.env"; \
+		echo "    localhost → .localhost.env    cp .env.localhost.example .localhost.env"; \
 		exit 1; \
 	}
 endef
 
 # Goal sinks, so `make up prod` does not report "No rule to make target 'prod'".
-dev prod:
+dev prod localhost:
 	@:
 
 
@@ -115,6 +123,7 @@ help:
 	@echo "  Every target takes the deployment as the last word:"
 	@echo "    make up prod        the real host, reading .production.env"
 	@echo "    make up dev         a laptop or test box, reading .env  (the default)"
+	@echo "    make up localhost   a laptop, reading .localhost.env, with MongoDB + Neo4j run here"
 	@echo ""
 	@echo "  First run — production:"
 	@echo "    cp .env.production.example .production.env && \$$EDITOR .production.env"
@@ -125,6 +134,10 @@ help:
 	@echo "  First run — local:"
 	@echo "    cp .env.example .env && \$$EDITOR .env"
 	@echo "    make up dev"
+	@echo ""
+	@echo "  First run — local, nothing to run elsewhere:"
+	@echo "    cp .env.localhost.example .localhost.env && \$$EDITOR .localhost.env"
+	@echo "    make up localhost"
 	@echo ""
 	@echo "  Day to day (add dev/prod to each):"
 	@echo "    make ps             What is running"
@@ -199,8 +212,8 @@ preflight:
 	case "$(BB_ENV)-$$origin" in \
 	  prod-http://localhost*|prod-https://localhost*) \
 	    echo "✗ prod, but FRONTEND_BASE_URL is $$origin — that is a dev value in $(ENV_FILE)."; exit 1;; \
-	  dev-http://localhost|dev-http://localhost:*) ;; \
-	  dev-*) echo "  note: dev, but FRONTEND_BASE_URL is $$origin (not localhost) — intended?";; \
+	  dev-http://localhost|dev-http://localhost:*|localhost-http://localhost|localhost-http://localhost:*) ;; \
+	  dev-*|localhost-*) echo "  note: $(BB_ENV), but FRONTEND_BASE_URL is $$origin (not localhost) — intended?";; \
 	esac
 	@echo "✓ docker, compose plugin and $(ENV_FILE) all present ($(BB_ENV))"
 
@@ -219,6 +232,12 @@ pull: preflight login
 	$(COMPOSE) pull
 
 up: dirs pull
+# The services connect to Mongo and Neo4j at boot and exit when they cannot, then restart until
+# they can. Neo4j takes tens of seconds to accept a query, so bring the databases to HEALTHY
+# first rather than letting every service crash-loop through that window.
+ifeq ($(BB_ENV),localhost)
+	$(COMPOSE) up -d --wait mongodb neo4j
+endif
 	$(COMPOSE) up -d
 	@echo ""
 	@echo "Started $(BB_ENV) from $(ENV_FILE) at $(FRONTEND_BASE_URL)."
@@ -258,6 +277,12 @@ verify:
 	@echo "→ containers"
 	@$(COMPOSE) ps --format '   {{.Service}}\t{{.Status}}' 2>/dev/null || $(COMPOSE) ps
 	@echo ""
+ifeq ($(BB_ENV),localhost)
+	@echo "→ databases (run here under the localhost profile)"
+	@printf '   mongodb          '; $(COMPOSE) exec -T mongodb mongosh --quiet --eval "db.adminCommand('ping').ok" 2>/dev/null || echo unreachable
+	@printf '   neo4j            '; $(COMPOSE) exec -T neo4j cypher-shell -u neo4j -p '$(NEO4J_PASSWORD)' 'RETURN 1' >/dev/null 2>&1 && echo ok || echo unreachable
+	@echo ""
+endif
 	@echo "→ HAProxy backends (all should be UP)"
 	@curl -s --max-time 5 'http://localhost:8404/stats;csv' 2>/dev/null \
 	  | awk -F, '$$2=="BACKEND" {printf "   %-18s %s\n", $$1, $$18}' || echo "   stats page unreachable"

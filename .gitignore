@@ -10,6 +10,7 @@
 # Negations last, so the templates — which contain no values — stay tracked.
 !.env.example
 !.env.production.example
+!.env.localhost.example
 
 # Created at runtime by the stack.
 logs/

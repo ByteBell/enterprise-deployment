@@ -41,6 +41,59 @@ services:
     networks:
       - stack-net
 
+  # ── MongoDB + Neo4j — the `localhost` deployment only ───────────────────────
+  # Behind the `localhost` compose profile: `make up localhost` starts them, and `dev` / `prod`
+  # never see them — those keep MONGODB_URI / NEO4J_URI pointed at databases you run elsewhere.
+  # The services reach both over the compose network by name (mongodb, neo4j). The host ports
+  # are LOOPBACK ONLY, for mongosh and the Neo4j browser during triage, and each can be moved in
+  # .localhost.env when its default is already taken on the machine.
+  #
+  # Mongo runs without auth, like redis above: it is reachable only from this network and from
+  # the host's loopback. Neo4j cannot run without a password, so NEO4J_PASSWORD from the env file
+  # is both what the server is created with and what every service connects with.
+  mongodb:
+    profiles: ["localhost"]
+    image: mongo:7
+    container_name: bb-stack-mongodb
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MONGODB_HOST_PORT:-27017}:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" | grep -q 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - stack-net
+
+  neo4j:
+    profiles: ["localhost"]
+    # Community edition, the same major.minor the hosted graph runs; it carries the vector index
+    # the chat similarity path needs. No plugins: PageRank and the hub layer are computed in the
+    # services, not by APOC or GDS.
+    image: neo4j:5.26-community
+    container_name: bb-stack-neo4j
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${NEO4J_HTTP_HOST_PORT:-7474}:7474"
+      - "127.0.0.1:${NEO4J_BOLT_HOST_PORT:-7687}:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      # Bolt, not just the HTTP port: 7474 answers well before the database accepts a query. The
+      # password is interpolated from the env file, as NEO4J_AUTH above already is.
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p '${NEO4J_PASSWORD}' 'RETURN 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 40s
+    networks:
+      - stack-net
+
   # ── Admin Dashboard (static frontend) ───────────────────────────────────────
   admin-dashboard:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:admin-dashboard-${IMAGE_TAG:-latest}
@@ -509,6 +562,9 @@ volumes:
   updater_state:
   shared-config:
   conversation-ladybug:
+  # `localhost` deployment only — see the mongodb / neo4j services.
+  mongo_data:
+  neo4j_data:
 
 # =============================================================================
 # Networks
