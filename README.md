@@ -25,9 +25,10 @@ says it is up. Running it again is also how you upgrade.
 | `./install.sh --env dev` | `.env` | a laptop or test box at `http://localhost`, using databases you already run somewhere |
 | `./install.sh --env local` | `.localhost.env` | the same, except MongoDB and Neo4j run **here** and one superadmin signs in by email and password — nothing to run elsewhere, no OAuth app to register |
 
-Nothing is ever built: every service is an image pulled from the registry, told apart by tag.
-There is no default environment — you say which one, every time, so production is never what you
-get by forgetting.
+`production`, `development` and `localhost` mean the same three, so whichever word you reach for
+works. Nothing is ever built: every service is an image pulled from the registry, told apart by
+tag. There is no default environment — you say which one, every time, so production is never what
+you get by forgetting.
 
 The `make` targets below still work and do the same jobs one at a time (`make logs`, `make ps`,
 `make down`). `install.sh` is the one that takes you from a filled-in env file to a serving stack.

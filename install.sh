@@ -31,6 +31,7 @@ cd "$ROOT"
 usage() {
   cat >&2 <<EOF
 usage: $0 --env prod|dev|local
+         (production, development and localhost mean the same three)
 
   prod    the real host, on its own domain                      (.production.env)
   dev     a laptop or test box, databases run elsewhere         (.env)
@@ -49,6 +50,14 @@ case "${1:-}" in
   --env)   ENV_NAME="${2:-}"; [ $# -eq 2 ] || usage ;;
   --env=*) ENV_NAME="${1#--env=}"; [ $# -eq 1 ] || usage ;;
   *)       usage ;;
+esac
+
+# The obvious words people type are the long ones, so take them as the same thing rather
+# than answering an unambiguous request with the usage text.
+case "$ENV_NAME" in
+  production)  ENV_NAME=prod ;;
+  development) ENV_NAME=dev ;;
+  localhost)   ENV_NAME=local ;;
 esac
 
 # ── Per-environment wiring — the only place the three differ ────────────────
