@@ -11,23 +11,26 @@ registry, and you need a read-only token from ByteBell to pull them.
 git clone https://github.com/ByteBell/enterprise-deployment.git plumbline
 cd plumbline
 cp .env.production.example .production.env   # fill it in — see Step 3
-make up prod                                 # checks, logs in, pulls, starts
-make verify prod
+./install.sh --env prod
 ```
 
-`make up` is the whole deployment: it checks the env file, authenticates to the registry, pulls
-every image from Docker Hub, and starts the stack. There is no separate pull step to remember.
+**`./install.sh` is the whole deployment, and its one parameter is which one this is.** It checks
+the env file and the provider profiles, authenticates to the registry, works out which release to
+pull, replaces the running containers, and then waits until the stack actually *serves* before it
+says it is up. Running it again is also how you upgrade.
 
-Trying it on a laptop first? Every target takes `dev` instead, which reads `.env` and expects the
-stack at `http://localhost`:
+| | reads | what you get |
+| --- | --- | --- |
+| `./install.sh --env prod` | `.production.env` | the real host, on its own domain |
+| `./install.sh --env dev` | `.env` | a laptop or test box at `http://localhost`, using databases you already run somewhere |
+| `./install.sh --env local` | `.localhost.env` | the same, except MongoDB and Neo4j run **here** and one superadmin signs in by email and password — nothing to run elsewhere, no OAuth app to register |
 
-```bash
-cp .env.example .env
-make up dev
-```
+Nothing is ever built: every service is an image pulled from the registry, told apart by tag.
+There is no default environment — you say which one, every time, so production is never what you
+get by forgetting.
 
-`dev` is the default, so a bare `make up` is the local one. Production is never what you get by
-forgetting to say which.
+The `make` targets below still work and do the same jobs one at a time (`make logs`, `make ps`,
+`make down`). `install.sh` is the one that takes you from a filled-in env file to a serving stack.
 
 ---
 
@@ -240,18 +243,30 @@ The failure mode is an empty turn, not a shallow one.
 ## Step 4 — Start
 
 ```bash
-make up prod       # check, authenticate, pull every image, start everything
-make verify prod   # prove it is actually serving
+./install.sh --env prod
 ```
 
-On a laptop, say `dev` instead of `prod` in each — or leave it off, since `dev` is the default.
-With `localhost`, `make up` brings MongoDB and Neo4j to healthy first and only then starts the
-services, and `make verify` checks both databases before the HAProxy backends.
+That is the whole thing. Say `dev` or `local` instead for a laptop. It runs, in order:
 
-`make verify` is not the same as "the containers are up". It checks the HAProxy backends and the
-endpoints, because a live route in front of a dead backend answers 503 and still looks healthy in
-`docker ps`. On the public-questions line **a 4xx is the correct answer** — the service rejected an
-empty question. A 503 there means HAProxy is up and `public-agent` is not.
+1. **Preflight** — Docker and the compose plugin, the env file's required values, no key defined
+   twice, every LLM profile it names exists and carries what the services refuse to boot without,
+   and nothing else already holding port 80.
+2. **Which release** — a pinned `IMAGE_TAG` is used as-is; a blank one resolves to the newest
+   published release, which it prints.
+3. **Pull**, after logging in to the registry.
+4. **Replace the containers** — down first, so a service removed since the last install is not
+   left running beside the new set. Volumes, and so your data, are kept.
+5. **Databases first** under `--env local`: MongoDB and Neo4j reach healthy before the services
+   that would otherwise crash-loop waiting for them.
+6. **Wait until it serves.** Not the same as "the containers are up": a live route in front of a
+   dead backend answers 503 and still looks healthy in `docker ps`. It polls the admin and
+   knowledge APIs and fails naming the service whose logs to read.
+7. **The superadmin** under `--env local`: seeds the organisation and the account, then promotes
+   it. Idempotent, so re-running after changing a value is how you apply it.
+
+`make verify` remains as a separate check of the HAProxy backends and the endpoints. On the
+public-questions line **a 4xx is the correct answer** — the service rejected an empty question. A
+503 there means HAProxy is up and `public-agent` is not.
 
 ---
 
@@ -304,17 +319,20 @@ sessions keyed on `mcp-session-id`, so every graph call of a single run lands on
 
 ### Upgrading
 
+Upgrading is the install command again:
+
 ```bash
-$EDITOR .production.env   # set the new IMAGE_TAG
-make update prod          # pull it and replace the running containers
-make verify prod
+git pull                  # only if you want new compose/proxy config too
+./install.sh --env prod
 ```
 
-With `IMAGE_TAG` blank, `make update prod` moves you to the newest release each time it runs.
+With `IMAGE_TAG` blank it moves you to the newest published release each time, printing which
+one it picked. Pin `IMAGE_TAG` in your env file to hold this deployment still — and to roll
+back, since a pinned tag is never looked up or moved.
 
 **Upgrading onto the release that introduced `AGENT_PROFILE` needs one extra step, once.** The
 public-agent credential used to sit in your env file as `AGENT_LLM_BASE_URL` / `AGENT_LLM_API_KEY` /
-`AGENT_MODEL`. It now lives in a profile, so before `make update`:
+`AGENT_MODEL`. It now lives in a profile, so before you upgrade:
 
 ```bash
 cp llm/agent-baseten.env.example llm/agent-baseten.env
