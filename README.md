@@ -125,6 +125,20 @@ the registry credential, your S3 bucket and the provider keys. Both databases ke
 Docker volumes (`mongo_data`, `neo4j_data`) and publish loopback-only ports for `mongosh` and the
 Neo4j browser; move a port in `.localhost.env` if the default is already taken on your machine.
 
+`localhost` also needs **no OAuth app**. Its template switches every social sign-in button off
+(`ENABLE_GITHUB_LOGIN`, `ENABLE_GITLAB`, `ENABLE_BITBUCKET`, `ENABLE_GOOGLE` all `false`, and
+`PAY_PER_USER_MODE=false` so the email + password form shows) and leaves the `*_CLIENT_ID` /
+`*_CLIENT_SECRET` keys blank, so nobody has to register a GitHub, GitLab, Bitbucket or Google app,
+or be handed the keys of one, to use the stack. Instead:
+
+- **Sign-in** is one superadmin account, named by `SEED_CLIENT_EMAIL` / `SEED_CLIENT_PASSWORD`.
+  Once the stack is up, `make superadmin localhost` seeds the organisation, creates that user and
+  promotes it. It is idempotent — run it again after changing the values.
+- **Repositories** are read with personal access tokens. `ENABLE_TOKEN_ENV_FALLBACK=true` plus
+  `PERSONAL_ACCESS_TOKEN` (GitHub), `GITLAB_TOKEN` and `BITBUCKET_TOKEN` in the env file cover any
+  repository whose organisation holds no token of its own; a token pasted when adding a repository
+  in the dashboard is used ahead of them. Each developer puts in tokens they already have.
+
 ```bash
 cp .env.production.example .production.env
 $EDITOR .production.env

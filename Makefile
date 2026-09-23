@@ -1,4 +1,4 @@
-.PHONY: dev prod localhost help preflight login pull up down restart ps logs verify update dirs
+.PHONY: dev prod localhost help superadmin preflight login pull up down restart ps logs verify update dirs
 
 # `sudo` by default, because that is how Docker is installed on a fresh Ubuntu host: the daemon
 # socket is root-owned until your user is in the `docker` group AND you have logged out and back in.
@@ -138,6 +138,7 @@ help:
 	@echo "  First run — local, nothing to run elsewhere:"
 	@echo "    cp .env.localhost.example .localhost.env && \$$EDITOR .localhost.env"
 	@echo "    make up localhost"
+	@echo "    make superadmin localhost   Create the email+password superadmin named in the env file"
 	@echo ""
 	@echo "  Day to day (add dev/prod to each):"
 	@echo "    make ps             What is running"
@@ -294,3 +295,21 @@ endif
 	@echo ""
 	@echo "   A 4xx on the last line is CORRECT (the service rejected an empty question)."
 	@echo "   A 503 means HAProxy is up but public-agent is not — check: make logs s=public-agent-1"
+
+# The localhost stack signs in by email + password, with no OAuth app: create that account.
+# Three steps, each idempotent — seed the organisation and the SEED_CLIENT_* user (the seed
+# binary shipped in the ingestion-engine image, reading SEED_* from the env file the container
+# already has), then promote that user to superadmin in the mongodb container. localhost only:
+# on dev/prod the database is not ours to reach into, and the seed's org addresses are
+# written for this compose file.
+superadmin:
+	$(call require_env)
+	@test "$(BB_ENV)" = "localhost" || { echo "✗ superadmin is for the localhost deployment only (make superadmin localhost)"; exit 1; }
+	@test -n "$(SEED_CLIENT_EMAIL)" -a -n "$(SEED_CLIENT_PASSWORD)" || { echo "✗ SEED_CLIENT_EMAIL and SEED_CLIENT_PASSWORD must be set in $(ENV_FILE)"; exit 1; }
+	@echo "→ seeding organisation '$(SEED_ORG_NAME)' and user $(SEED_CLIENT_EMAIL)"
+	$(COMPOSE) exec -T admin-server /app/bytebell-seed
+	@echo "→ promoting $(SEED_CLIENT_EMAIL) to superadmin"
+	@$(COMPOSE) exec -T mongodb mongosh --quiet --eval \
+	  "const r = db.getSiblingDB('$(or $(ADMIN_DATABASE_NAME),app_backend_v2)').users.updateOne({email:'$(SEED_CLIENT_EMAIL)'},{\$$set:{user_role:'super_admin'}}); print(r.matchedCount ? 'ok' : 'NO SUCH USER — did the seed step fail?')"
+	@echo ""
+	@echo "Sign in at $(FRONTEND_BASE_URL)/auth/login as $(SEED_CLIENT_EMAIL) with SEED_CLIENT_PASSWORD from $(ENV_FILE)."
