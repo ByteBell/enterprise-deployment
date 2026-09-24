@@ -167,10 +167,13 @@ esac
 # install "comes up" and then serves someone else's containers.
 PROJECT_NAME="$(envget COMPOSE_PROJECT_NAME)"; PROJECT_NAME="${PROJECT_NAME:-bb-stack}"
 # The project name also names every volume (<project>_mongo_data …). `local` and `dev` are the
-# development environments' — production under either would attach their data.
-case "$PROJECT_NAME" in
-  local|dev) die "COMPOSE_PROJECT_NAME=$PROJECT_NAME belongs to a development environment — production needs its own (e.g. prod), or it shares their volumes" ;;
-esac
+# development environments' — production under either would attach their data. The check is
+# production's only: dev and local are exactly those names.
+if [ "$ENV_NAME" = prod ]; then
+  case "$PROJECT_NAME" in
+    local|dev) die "COMPOSE_PROJECT_NAME=$PROJECT_NAME belongs to a development environment — production needs its own (e.g. prod), or it shares their volumes" ;;
+  esac
+fi
 holder=$("${DOCKER[@]}" ps --format '{{.Names}}\t{{.Ports}}\t{{.Label "com.docker.compose.project"}}' \
   | awk -F'\t' '$2 ~ /(^|[^0-9])80->/ && $3 != "'"$PROJECT_NAME"'" {print $1" (compose project "$3")"}' | head -1)
 [ -z "$holder" ] || die "port 80 is held by $holder, which this install would not replace — stop that stack first."
