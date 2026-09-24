@@ -82,15 +82,21 @@ endef
 #
 # Skipped entirely when the env file is absent, so that case reaches `preflight` and gets told to
 # copy a template — rather than dying here on a lookup that never had credentials to try.
+# `latest` — on the command line, `make up local IMAGE_TAG=latest` — asks for the same lookup, so an
+# env file pinned to a version or to `local` can still run the newest release without being edited.
+# `override`: a command-line IMAGE_TAG would otherwise win over the resolved value.
+ifneq ($(filter-out latest,$(strip $(IMAGE_TAG))),$(strip $(IMAGE_TAG)))
+  override IMAGE_TAG :=
+endif
 ifeq ($(strip $(IMAGE_TAG)),)
   ifneq ($(filter pull up update,$(MAKECMDGOALS)),)
     ifneq ($(wildcard $(ENV_FILE)),)
-      IMAGE_TAG := $(shell $(latest_tag_sh))
+      override IMAGE_TAG := $(shell $(latest_tag_sh))
       ifeq ($(strip $(IMAGE_TAG)),)
         $(error IMAGE_TAG is unset and the newest release could not be read from $(IMAGE_REGISTRY). \
                 Check REGISTRY_USERNAME and REGISTRY_TOKEN in $(ENV_FILE), or set IMAGE_TAG yourself)
       endif
-      $(info → IMAGE_TAG unset; using the newest published release: $(IMAGE_TAG))
+      $(info → using the newest published release: $(IMAGE_TAG))
     endif
   endif
 endif
@@ -185,6 +191,8 @@ help:
 	@echo ""
 	@echo "  In the ByteBell monorepo — images built from source instead of pulled:"
 	@echo "    set IMAGE_TAG=local in the env file, run 'make build' in the monorepo, then 'make up local|dev'"
+	@echo "    make up local IMAGE_TAG=latest    Pull and run the newest release instead, env file untouched"
+	@echo "    make up local IMAGE_TAG=5.4.2     Pull and run that release"
 	@echo "    make publish prod VERSION=x.y.z   Multi-arch build + push, via the monorepo's release"
 	@echo ""
 	@echo "  Day to day (add dev/prod to each):"

@@ -28,6 +28,16 @@ make up dev        make down dev
 make up prod       make down prod
 ```
 
+To pull a published release, or run your own builds, without editing the env file:
+
+```bash
+make up local                      # the env file's IMAGE_TAG (`local` → the images make build made)
+make up local IMAGE_TAG=latest     # pull and run the newest published release
+make up local IMAGE_TAG=5.4.2      # pull and run that exact release
+```
+
+See [Which images run](#which-images-run-image_tag) for every value.
+
 - `make down` keeps the volumes, so your data survives. Only `docker compose down -v` deletes it.
 - `make up local` starts MongoDB and Neo4j first and waits until both accept queries. It then
   creates the MongoDB user named in `MONGODB_URI`, or checks that user still signs in, before
@@ -219,6 +229,18 @@ write it into the new bucket.
 | `local`                     | images built on this machine by `make build` in the ByteBell monorepo; nothing is pulled |
 
 `prod` refuses `IMAGE_TAG=local`, so production can only run published releases.
+
+To run a different image source for one command without editing the env file, pass `IMAGE_TAG` on the
+command line. It wins over the env file:
+
+```bash
+make up local                      # whatever the env file says (e.g. local → your own builds)
+make up local IMAGE_TAG=latest     # pull and run the newest published release
+make up local IMAGE_TAG=5.4.2      # pull and run that release
+make up local IMAGE_TAG=local      # run the images make build made
+```
+
+The same works for `dev`. `make down local` needs no tag.
 
 ## Inside the ByteBell monorepo: build, run, publish
 
