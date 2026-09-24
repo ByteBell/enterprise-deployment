@@ -202,6 +202,8 @@ export IMAGE_TAG
 # entries inside the compose file expand to. Both must name the same file, or the containers
 # read one file while the compose file was interpolated from another and nothing reports it.
 export ENV_FILE
+# Names every container <environment>-<service> — see the header of docker-compose.yml.
+export STACK_ENV="$ENV_NAME"
 compose() { "${DOCKER[@]}" compose --env-file "$ENV_FILE" ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} "$@"; }
 
 # ── 3. Pull ─────────────────────────────────────────────────────────────────

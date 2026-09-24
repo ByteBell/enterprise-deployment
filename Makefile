@@ -35,6 +35,9 @@ ENV_FILE_localhost = .localhost.env
 COMPOSE_PROFILE := $(if $(filter localhost,$(BB_ENV)),--profile localhost)
 ENV_FILE      := $(ENV_FILE_$(BB_ENV))
 export ENV_FILE
+# Names every container <environment>-<service> — see the header of docker-compose.yml.
+STACK_ENV     := $(if $(filter localhost,$(BB_ENV)),local,$(BB_ENV))
+export STACK_ENV
 
 # Read the selected file only to sanity-check it and to print what is running. Compose reads it
 # itself for ${VAR} substitution, which is why no target has to pass IMAGE_TAG along.
@@ -91,7 +94,7 @@ export IMAGE_TAG
 # them for one invocation — a shell variable outranks --env-file in compose interpolation.
 PROFILE_ENV = $(if $(LLM),LLM_PROFILE=$(LLM)) $(if $(INGEST),INGEST_PROFILE=$(INGEST)) $(if $(FALLBACK),FALLBACK_PROFILE=$(FALLBACK))
 DOCKER_ENV = $(if $(filter sudo,$(firstword $(DOCKER))),\
-               sudo env IMAGE_TAG=$(IMAGE_TAG) ENV_FILE=$(ENV_FILE) $(PROFILE_ENV) $(wordlist 2,99,$(DOCKER)),\
+               sudo env IMAGE_TAG=$(IMAGE_TAG) ENV_FILE=$(ENV_FILE) STACK_ENV=$(STACK_ENV) $(PROFILE_ENV) $(wordlist 2,99,$(DOCKER)),\
                $(PROFILE_ENV) $(DOCKER))
 
 # Both are needed and they are NOT the same thing. `--env-file` feeds ${VAR} substitution in

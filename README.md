@@ -309,8 +309,8 @@ sudo docker logs prod-public-agent-1 --since 10m
 sudo docker logs prod-mcp-3 --tail 500 2>&1 | grep -i error
 ```
 
-Container names are `prod-<service>`; MCP replicas are `prod-mcp-1` to `-4` and the public
-agents `prod-public-agent-1` and `-2`.
+Container names are `<environment>-<service>` — `prod-` here, `dev-` and `local-` for the other two
+environments; MCP replicas are `prod-mcp-1` to `-4` and the public agents `prod-public-agent-1` and `-2`.
 
 **When chasing one review or question:** the four MCP replicas sit behind HAProxy with sticky
 sessions keyed on `mcp-session-id`, so every graph call of a single run lands on ONE replica.
