@@ -16,8 +16,8 @@
 # superadmin — is decided here, so two people running the same command get the same stack.
 #
 # NOTHING IS BUILT. This package carries no source: every service is an image pulled from
-# the registry, told apart by tag. (The ByteBell monorepo has its own install.sh whose
-# `local` and `dev` build from a checkout; this one is what a deployment runs.)
+# the registry, told apart by tag. Inside the ByteBell monorepo, `make build` there builds every
+# image as <service>-local, and IMAGE_TAG=local in the env file runs those instead of pulling.
 #
 # Safe to run again — that is also how you upgrade. Containers are recreated; volumes,
 # and so your data, are kept.
@@ -199,6 +199,10 @@ else
   ok "newest release is $IMAGE_TAG"
 fi
 export IMAGE_TAG
+# IMAGE_TAG=local names images the monorepo's `make build` made on this machine. They are in no
+# registry: nothing to log in to, nothing to pull, and `pull_policy: always` must not replace them.
+[ "$ENV_NAME" != prod ] || [ "$IMAGE_TAG" != local ] || die "IMAGE_TAG=local in $ENV_FILE: production runs released tags, never a local build."
+if [ "$IMAGE_TAG" = local ]; then export PULL_POLICY=never; else export PULL_POLICY=always; fi
 
 # ── The compose command, pinned to the selected file ────────────────────────
 # --env-file feeds ${VAR} interpolation; the exported ENV_FILE is what the `env_file:`
@@ -207,15 +211,47 @@ export IMAGE_TAG
 export ENV_FILE
 # Names every container <environment>-<service> — see the header of docker-compose.yml.
 export STACK_ENV="$ENV_NAME"
+# local and dev also get the Stack Settings page (docker-compose.stack-settings.yml mounts the Docker
+# socket into admin-server); prod never does. admin-server is told the file list and profiles, and
+# recreates containers with the same ones.
+if [ "$ENV_NAME" = prod ]; then
+  export COMPOSE_FILE=docker-compose.yml COMPOSE_PROFILES=
+else
+  export COMPOSE_FILE=docker-compose.yml:docker-compose.stack-settings.yml
+  if [ "$ENV_NAME" = local ]; then export COMPOSE_PROFILES=localhost; else export COMPOSE_PROFILES=; fi
+  # Stack Settings recreates containers by running compose in COMPOSE_PROJECT_DIR.
+  [ "$(envget COMPOSE_PROJECT_DIR)" = "$ROOT" ] || die "$ENV_FILE sets COMPOSE_PROJECT_DIR=$(envget COMPOSE_PROJECT_DIR), but this directory is $ROOT — set it to $ROOT"
+fi
 compose() { "${DOCKER[@]}" compose --env-file "$ENV_FILE" ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} "$@"; }
 
+# mongosh inside the local mongodb container, with MONGODB_URI's credentials parsed in JS (so a
+# password with URL-escaped characters is decoded exactly as the driver decodes it). Connects to
+# 127.0.0.1, which is what the localhost exception requires.
+mongo_eval() {
+  compose exec -T -e URI="$(envget MONGODB_URI)" mongodb mongosh --quiet --eval "
+    const u = new URL(process.env.URI);
+    const creds = { user: decodeURIComponent(u.username), pwd: decodeURIComponent(u.password) };
+    const authDb = db.getSiblingDB(u.searchParams.get('authSource') || 'admin');
+    $1"
+}
+
 # ── 3. Pull ─────────────────────────────────────────────────────────────────
-say "pulling $IMAGE_TAG"
-printf '%s' "$(envget REGISTRY_TOKEN)" | "${DOCKER[@]}" login "$(envget IMAGE_REGISTRY)" \
-  --username "$(envget REGISTRY_USERNAME)" --password-stdin >/dev/null \
-  || die "could not log in to $(envget IMAGE_REGISTRY) as $(envget REGISTRY_USERNAME)."
-compose pull
-ok "pulled"
+if [ "$PULL_POLICY" = never ]; then
+  say "IMAGE_TAG=local — using the images make build made, nothing is pulled"
+  missing=""
+  for img in $(compose config --images 2>/dev/null | grep -F "/$(envget IMAGE_REPO_PREFIX)/$(envget IMAGE_REPO_NAME):" | sort -u); do
+    "${DOCKER[@]}" image inspect "$img" >/dev/null 2>&1 || missing="$missing $img"
+  done
+  [ -z "$missing" ] || die "these images are not on this machine — build them with 'make build' in the ByteBell monorepo:$missing"
+  ok "every image is present"
+else
+  say "pulling $IMAGE_TAG"
+  printf '%s' "$(envget REGISTRY_TOKEN)" | "${DOCKER[@]}" login "$(envget IMAGE_REGISTRY)" \
+    --username "$(envget REGISTRY_USERNAME)" --password-stdin >/dev/null \
+    || die "could not log in to $(envget IMAGE_REGISTRY) as $(envget REGISTRY_USERNAME)."
+  compose pull
+  ok "pulled"
+fi
 
 # ── 4. Replace the running containers ───────────────────────────────────────
 # Down first, so nothing from a previous layout survives — a service renamed or removed
@@ -236,6 +272,17 @@ if [ "$LOCAL_DBS" = yes ]; then
   say "starting MongoDB and Neo4j, waiting until they accept queries"
   compose up -d --wait mongodb neo4j
   ok "databases healthy"
+
+  # MongoDB runs with --auth. Its first user is created from MONGODB_URI through the localhost
+  # exception, which admits exactly one first user; on every later run the same credentials must
+  # simply authenticate. Idempotent either way.
+  mongo_user=$(mongo_eval 'try { authDb.auth(creds.user, creds.pwd); print("exists"); }
+    catch (e) { authDb.createUser({ user: creds.user, pwd: creds.pwd, roles: [{ role: "root", db: "admin" }] }); print("created"); }' 2>&1 | tail -1)
+  case "$mongo_user" in
+    exists)  ok "MongoDB user from MONGODB_URI authenticates" ;;
+    created) ok "MongoDB user from MONGODB_URI created" ;;
+    *)       die "MongoDB rejects the user and password in MONGODB_URI ($mongo_user) — put back the password the database was created with." ;;
+  esac
 fi
 
 say "starting the stack"
@@ -265,8 +312,8 @@ if [ "$SEED" = yes ]; then
   say "seeding organisation '$(envget SEED_ORG_NAME)' and superadmin $(envget SEED_CLIENT_EMAIL)"
   compose exec -T admin-server /app/bytebell-seed
   admin_db="$(envget ADMIN_DATABASE_NAME)"; admin_db="${admin_db:-app_backend_v2}"
-  matched=$(compose exec -T mongodb mongosh --quiet --eval \
-    "db.getSiblingDB('$admin_db').users.updateOne({email:'$(envget SEED_CLIENT_EMAIL)'},{\$set:{user_role:'super_admin'}}).matchedCount" | tr -d '[:space:]')
+  matched=$(mongo_eval "authDb.auth(creds.user, creds.pwd);
+    print(db.getSiblingDB('$admin_db').users.updateOne({email:'$(envget SEED_CLIENT_EMAIL)'},{\$set:{user_role:'super_admin'}}).matchedCount)" | tail -1 | tr -d '[:space:]')
   [ "$matched" = 1 ] || die "the seed did not create $(envget SEED_CLIENT_EMAIL) — read the seed output above."
   ok "superadmin ready"
 fi

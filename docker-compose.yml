@@ -20,8 +20,11 @@ name: bb-stack
 # older package keeps its old project name to reattach its data. The local-only databases are
 # always local-mongodb / local-neo4j.
 
+# `always` for a released tag, so `up` never runs a stale copy of it. The Makefile and install.sh set
+# PULL_POLICY=never when IMAGE_TAG=local — images the monorepo's `make build` made on this machine,
+# which exist in no registry.
 x-registry-image: &registry-image
-  pull_policy: always
+  pull_policy: ${PULL_POLICY:-always}
 
 services:
   # ── Redis (BullMQ queues + session cache) ───────────────────────────────────
@@ -54,14 +57,16 @@ services:
   # are LOOPBACK ONLY, for mongosh and the Neo4j browser during triage, and each can be moved in
   # .localhost.env when its default is already taken on the machine.
   #
-  # Mongo runs without auth, like redis above: it is reachable only from this network and from
-  # the host's loopback. Neo4j cannot run without a password, so NEO4J_PASSWORD from the env file
-  # is both what the server is created with and what every service connects with.
+  # Both run with auth. MONGODB_URI carries the user and password: `make up local` / install.sh
+  # create that user on first start (the localhost exception admits exactly one first user), and
+  # on every later start the same credentials simply authenticate. The healthcheck's `ping` needs
+  # none. Neo4j is created with NEO4J_PASSWORD, which every service also connects with.
   mongodb:
     profiles: ["localhost"]
     image: mongo:7
     container_name: local-mongodb
     restart: unless-stopped
+    command: ["--auth"]
     ports:
       - "127.0.0.1:${MONGODB_HOST_PORT:-27017}:27017"
     volumes:

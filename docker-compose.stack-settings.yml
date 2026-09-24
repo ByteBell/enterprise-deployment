@@ -1,0 +1,22 @@
+# =============================================================================
+# The super-admin Stack Settings page — `local` and `dev` only
+# =============================================================================
+# Layered on docker-compose.yml by the Makefile and install.sh (COMPOSE_FILE) for local and dev, never
+# for prod. The page edits the env file and llm/*.env in place, then recreates the containers a change
+# affects through the Docker socket. The socket makes admin-server root-equivalent on the host, which
+# is why a production deployment does not get this file.
+#
+# Every STACK_* value is how this stack was started, so the page's recreate starts containers the same
+# way: the same env file, profiles and compose files, the same <STACK_ENV>-<service> names, the same tag.
+# COMPOSE_PROJECT_DIR in the env file must be this directory — the recreate runs compose there.
+services:
+  admin-server:
+    volumes:
+      - .:/app/deployment
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      STACK_ENV_FILE: ${ENV_FILE}
+      STACK_COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
+      STACK_COMPOSE_FILE: ${COMPOSE_FILE:-}
+      STACK_ENV: ${STACK_ENV}
+      STACK_IMAGE_TAG: ${IMAGE_TAG}

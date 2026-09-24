@@ -97,8 +97,9 @@ Verify with `docker compose version`. The plugin has to be installed separately 
 `docker.io` package does not carry Compose v2, and `docker-compose` (the old hyphenated Python tool)
 cannot read this file.
 
-Every `make` target uses `sudo` by default, which is correct on a fresh host. To drop it, add
-yourself to the `docker` group, **log out and back in**, and run targets as `make up DOCKER=docker`.
+Every `make` target uses plain `docker` when it already works for your user, and `sudo docker` otherwise —
+which is what a fresh host needs. To drop sudo, add yourself to the `docker` group and **log out and back
+in**; `DOCKER=sudo docker` or `DOCKER=docker` on the command line forces either.
 Be consistent: `make login` stores credentials for the user that runs it, and `make pull` must run as
 that same user or it cannot read them.
 
@@ -120,7 +121,7 @@ matches where this is running:
 | --- | --- | --- | --- |
 | A real host, own domain | `.env.production.example` | `.production.env` | `make up prod` |
 | A laptop or test box, databases run elsewhere | `.env.example` | `.env` | `make up dev` |
-| A laptop, nothing run elsewhere | `.env.localhost.example` | `.localhost.env` | `make up localhost` |
+| A laptop, nothing run elsewhere | `.env.localhost.example` | `.localhost.env` | `make up local` |
 
 `localhost` is the self-contained one: it starts MongoDB and Neo4j as containers in this compose
 file (behind the `localhost` compose profile, so `dev` and `prod` never see them) and its template
@@ -136,7 +137,7 @@ Neo4j browser; move a port in `.localhost.env` if the default is already taken o
 or be handed the keys of one, to use the stack. Instead:
 
 - **Sign-in** is one superadmin account, named by `SEED_CLIENT_EMAIL` / `SEED_CLIENT_PASSWORD`.
-  Once the stack is up, `make superadmin localhost` seeds the organisation, creates that user and
+  Once the stack is up, `make superadmin local` seeds the organisation, creates that user and
   promotes it. It is idempotent — run it again after changing the values.
 - **Repositories** are read with personal access tokens. `ENABLE_TOKEN_ENV_FALLBACK=true` plus
   `PERSONAL_ACCESS_TOKEN` (GitHub), `GITLAB_TOKEN` and `BITBUCKET_TOKEN` in the env file cover any
@@ -272,7 +273,7 @@ public-questions line **a 4xx is the correct answer** — the service rejected a
 
 ## Day to day
 
-Every target takes `dev`, `prod` or `localhost` as its last word, and `dev` is what you get if you
+Every target takes `dev`, `prod` or `local` (also spelled `localhost`) as its last word, and `dev` is what you get if you
 omit it:
 
 ```bash
