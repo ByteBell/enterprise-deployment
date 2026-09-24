@@ -72,12 +72,19 @@ If the page answers 503, the message says which of these is missing.
 
 ## File storage: the S3 bucket and its access
 
-Every environment, `local` included, stores files in S3 (`FILE_STORAGE_BACKEND=s3`). One bucket,
-`S3_FILES_BUCKET`, holds all of it:
+`FILE_STORAGE_BACKEND` is `s3` or `local`:
 
-- each indexed commit's source tree, which the MCP `the_receipts` tool reads back
-- generated spec pages
-- conversation-memory snapshots, under the `conversation-ladybug/` prefix
+- `local` — the `localhost` template's default. Every file stays in `./temp`, nothing is uploaded
+  anywhere, and the S3 keys are ignored. The rest of this section does not apply.
+- `s3` — the `dev` and `prod` default. One bucket, `S3_FILES_BUCKET`, holds all of it:
+
+  - each indexed commit's source tree, which the MCP `the_receipts` tool reads back
+  - generated spec pages
+  - conversation-memory snapshots, under the `conversation-ladybug/` prefix
+
+Either way the MCP server hands a whole file to an MCP client as a short-lived link: with `s3` a
+presigned URL on the bucket, with `local` a link it signs (key derived from `JWT_SECRET`) and serves
+itself from `./temp` at `FRONTEND_BASE_URL/mcp/files/…`.
 
 Give each environment its **own** bucket. If a laptop points at production's bucket, every repository
 indexed on that laptop is uploaded into production storage.

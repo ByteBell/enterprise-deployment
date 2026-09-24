@@ -99,8 +99,14 @@ ok "docker + compose${DOCKER[1]:+ (as root)}"
 
 required=(IMAGE_REGISTRY IMAGE_REPO_PREFIX IMAGE_REPO_NAME REGISTRY_USERNAME REGISTRY_TOKEN
           COMPOSE_PROJECT_DIR MONGODB_URI NEO4J_URI NEO4J_PASSWORD JWT_SECRET UPDATE_API_TOKEN
-          S3_FILES_BUCKET FRONTEND_BASE_URL LLM_PROFILE INGEST_PROFILE FALLBACK_PROFILE AGENT_PROFILE)
+          FILE_STORAGE_BACKEND FRONTEND_BASE_URL
+          LLM_PROFILE INGEST_PROFILE FALLBACK_PROFILE AGENT_PROFILE)
 [ "$SEED" = yes ] && required+=(SEED_ORG_NAME SEED_CLIENT_EMAIL SEED_CLIENT_PASSWORD)
+case "$(envget FILE_STORAGE_BACKEND)" in
+  s3)    required+=(S3_FILES_BUCKET) ;;
+  local|"") ;;
+  *)     die "FILE_STORAGE_BACKEND must be s3 or local, not \"$(envget FILE_STORAGE_BACKEND)\"" ;;
+esac
 missing=""
 for k in "${required[@]}"; do [ -n "$(envget "$k")" ] || missing="$missing $k"; done
 [ -z "$missing" ] || die "$ENV_FILE is missing values:$missing"

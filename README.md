@@ -71,7 +71,8 @@ Your own:
 
 - a **Linux host** — 4 vCPU / 16 GB is a sensible floor; ingestion is the hungry part
 - **MongoDB** and **Neo4j**, reachable from that host
-- an **S3 bucket** for repository source, generated specs and snapshots
+- an **S3 bucket** for repository source, generated specs and snapshots — `dev` and `prod` only;
+  `localhost` keeps every file in `./temp` (`FILE_STORAGE_BACKEND=local`)
 - an **inference endpoint** for public questions — an OpenAI-compatible base URL, a key, a model id
 
 Both CPU architectures are published, so x86_64 and ARM (AWS Graviton, Ampere) both work with no
@@ -126,7 +127,8 @@ matches where this is running:
 `localhost` is the self-contained one: it starts MongoDB and Neo4j as containers in this compose
 file (behind the `localhost` compose profile, so `dev` and `prod` never see them) and its template
 already points `MONGODB_URI` and `NEO4J_URI` at them. What is left to fill in is a Neo4j password,
-the registry credential, your S3 bucket and the provider keys. Both databases keep their data in
+the registry credential, the secrets and the provider keys. No S3 bucket: files stay in `./temp`,
+and the MCP servers hand them to MCP clients as signed links. Both databases keep their data in
 Docker volumes (`mongo_data`, `neo4j_data`) and publish loopback-only ports for `mongosh` and the
 Neo4j browser; move a port in `.localhost.env` if the default is already taken on your machine.
 
@@ -433,8 +435,8 @@ Check `df -i` first. See the disk section above.
 
 ## Data and backups
 
-Application data lives in your MongoDB, your Neo4j and your S3 bucket — back those up as you would
-any database.
+Application data lives in your MongoDB, your Neo4j and your S3 bucket (or `./temp` with
+`FILE_STORAGE_BACKEND=local`) — back those up as you would any database.
 
 On the host itself, these Docker volumes hold state: `redis_data` (queues in flight),
 `conversation-ladybug` (chat memory), `updater_state` and `shared-config`. Under `localhost`,

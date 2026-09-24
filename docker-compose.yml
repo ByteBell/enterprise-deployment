@@ -4,9 +4,7 @@
 # Runs on client-owned infrastructure.
 # system-manager autonomously updates all services via Docker socket.
 #
-# This stack connects OUTBOUND to Server 1 (fileserver stack):
-#   NEO4J_URI              → bolt://<server1-ip>:7687
-#   FILE_STORAGE_URL       → http://<server1-ip>:9000
+# This stack connects OUTBOUND to Neo4j at NEO4J_URI (the `neo4j` container on localhost).
 #
 # Usage:
 #   make up
@@ -150,8 +148,7 @@ services:
 
   # ── Knowledge Server (ingestion) — from the single ingestion-engine image ───
   # admin-server + knowledge-server both pull the SAME ECR image and differ only
-  # by `command`. NOTE: FILE_STORAGE_* are passed through unchanged — the split
-  # fileserver (Server 1) is left untouched this pass.
+  # by `command`.
   knowledge-server:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:ingestion-engine-${IMAGE_TAG:-latest}
     <<: *registry-image
@@ -172,11 +169,6 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       KNOWLEDGE_SERVER_PORT: 3001
       KNOWLEDGE_BASE_PATH: /app/temp
-      GITHUB_API_STREAMING_ENABLED: ${GITHUB_API_STREAMING_ENABLED:-false}
-      GITHUB_API_BATCH_SIZE: ${GITHUB_API_BATCH_SIZE:-10}
-      FILE_STORAGE_URL: ${FILE_STORAGE_URL}
-      FILE_STORAGE_WRITE_TOKEN: ${FILE_STORAGE_WRITE_TOKEN}
-      FILE_STORAGE_READ_TOKEN: ${FILE_STORAGE_READ_TOKEN}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -208,8 +200,6 @@ services:
       PORT: 3002
       LOGS_DIR: /app/all-logs
       KNOWLEDGE_BASE_PATH: /app/temp
-      FILE_STORAGE_URL: ${FILE_STORAGE_URL}
-      FILE_STORAGE_READ_TOKEN: ${FILE_STORAGE_READ_TOKEN}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -287,11 +277,10 @@ services:
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
       - MCP_ENV=${NODE_ENV:-development}
       - PORT=3100
-      - FILE_STREAMING=true
-      - FILE_STORAGE_URL=${FILE_STORAGE_URL}
-      - FILE_STORAGE_READ_TOKEN=${FILE_STORAGE_READ_TOKEN}
+      - KNOWLEDGE_BASE_PATH=/app/temp
     volumes:
       - ./logs/mcp/mcp-1:/app/mcp-server/logs
+      - ./temp:/app/temp
     read_only: true
     tmpfs:
       - /tmp
@@ -320,11 +309,10 @@ services:
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
       - MCP_ENV=${NODE_ENV:-development}
       - PORT=3100
-      - FILE_STREAMING=true
-      - FILE_STORAGE_URL=${FILE_STORAGE_URL}
-      - FILE_STORAGE_READ_TOKEN=${FILE_STORAGE_READ_TOKEN}
+      - KNOWLEDGE_BASE_PATH=/app/temp
     volumes:
       - ./logs/mcp/mcp-2:/app/mcp-server/logs
+      - ./temp:/app/temp
     read_only: true
     tmpfs:
       - /tmp
@@ -353,11 +341,10 @@ services:
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
       - MCP_ENV=${NODE_ENV:-development}
       - PORT=3100
-      - FILE_STREAMING=true
-      - FILE_STORAGE_URL=${FILE_STORAGE_URL}
-      - FILE_STORAGE_READ_TOKEN=${FILE_STORAGE_READ_TOKEN}
+      - KNOWLEDGE_BASE_PATH=/app/temp
     volumes:
       - ./logs/mcp/mcp-3:/app/mcp-server/logs
+      - ./temp:/app/temp
     read_only: true
     tmpfs:
       - /tmp
@@ -386,11 +373,10 @@ services:
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
       - MCP_ENV=${NODE_ENV:-development}
       - PORT=3100
-      - FILE_STREAMING=true
-      - FILE_STORAGE_URL=${FILE_STORAGE_URL}
-      - FILE_STORAGE_READ_TOKEN=${FILE_STORAGE_READ_TOKEN}
+      - KNOWLEDGE_BASE_PATH=/app/temp
     volumes:
       - ./logs/mcp/mcp-4:/app/mcp-server/logs
+      - ./temp:/app/temp
     read_only: true
     tmpfs:
       - /tmp
