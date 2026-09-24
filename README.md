@@ -160,7 +160,7 @@ the two secrets rather than inventing them:
 
 ```bash
 openssl rand -hex 32     # JWT_SECRET
-openssl rand -hex 32     # UPDATE_API_TOKEN
+openssl rand -hex 32     # UPDATE_API_TOKEN — dev and prod only; localhost has no update API
 ```
 
 Two that are easy to get wrong:

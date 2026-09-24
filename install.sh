@@ -98,10 +98,13 @@ ok "docker + compose${DOCKER[1]:+ (as root)}"
   then fill it in — see README, Step 3."
 
 required=(IMAGE_REGISTRY IMAGE_REPO_PREFIX IMAGE_REPO_NAME REGISTRY_USERNAME REGISTRY_TOKEN
-          COMPOSE_PROJECT_DIR MONGODB_URI NEO4J_URI NEO4J_PASSWORD JWT_SECRET UPDATE_API_TOKEN
+          COMPOSE_PROJECT_DIR MONGODB_URI NEO4J_URI NEO4J_PASSWORD JWT_SECRET
           FILE_STORAGE_BACKEND FRONTEND_BASE_URL
           LLM_PROFILE INGEST_PROFILE FALLBACK_PROFILE AGENT_PROFILE)
 [ "$SEED" = yes ] && required+=(SEED_ORG_NAME SEED_CLIENT_EMAIL SEED_CLIENT_PASSWORD)
+# Guards system-manager's update API. localhost never runs system-manager, and its admin-server answers
+# update requests with dev stubs, so the token is only asked of dev and prod.
+[ "$ENV_NAME" = local ] || required+=(UPDATE_API_TOKEN)
 case "$(envget FILE_STORAGE_BACKEND)" in
   s3)    required+=(S3_FILES_BUCKET) ;;
   local|"") ;;
