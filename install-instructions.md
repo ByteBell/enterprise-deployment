@@ -32,9 +32,12 @@ To pull a published release, or run your own builds, without editing the env fil
 
 ```bash
 make up local                      # the env file's IMAGE_TAG (`local` → the images make build made)
+make up local IMAGE_TAG=local      # run the images make build made; nothing is pulled
 make up local IMAGE_TAG=latest     # pull and run the newest published release
 make up local IMAGE_TAG=5.4.2      # pull and run that exact release
 ```
+
+See "Which images run: `IMAGE_TAG`" below for the full table.
 
 See [Which images run](#which-images-run-image_tag) for every value.
 
@@ -240,14 +243,19 @@ write it into the new bucket.
 To run a different image source for one command without editing the env file, pass `IMAGE_TAG` on the
 command line. It wins over the env file:
 
-```bash
-make up local                      # whatever the env file says (e.g. local → your own builds)
-make up local IMAGE_TAG=latest     # pull and run the newest published release
-make up local IMAGE_TAG=5.4.2      # pull and run that release
-make up local IMAGE_TAG=local      # run the images make build made
-```
+| Command (in `enterprise-deployment/`) | What runs                                                   |
+| ------------------------------------- | ----------------------------------------------------------- |
+| `make up local`                       | whatever the env file's `IMAGE_TAG` says                    |
+| `make up local IMAGE_TAG=local`       | the images your `make build` just made; nothing is pulled   |
+| `make up local IMAGE_TAG=latest`      | downloads and runs the newest published release             |
+| `make up local IMAGE_TAG=5.4.2`       | downloads and runs that exact release                       |
 
 The same works for `dev`. `make down local` needs no tag.
+
+So one local environment serves both purposes: test your own build before a release with
+`IMAGE_TAG=local`, then check the published images after `make publish` with `IMAGE_TAG=latest`.
+A release older than the env file's settings may not understand them — for example, a release that
+predates `FILE_STORAGE_BACKEND=local` still expects an S3 bucket.
 
 ## Inside the ByteBell monorepo: build, run, publish
 
