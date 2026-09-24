@@ -21,7 +21,7 @@ services:
   # ── Redis (BullMQ queues + session cache) ───────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: bb-stack-redis
+    container_name: prod-redis
     restart: unless-stopped
     ports:
       # LOOPBACK ONLY. Redis runs with no password and holds job payloads (git tokens, decrypted
@@ -54,7 +54,7 @@ services:
   mongodb:
     profiles: ["localhost"]
     image: mongo:7
-    container_name: bb-stack-mongodb
+    container_name: local-mongodb
     restart: unless-stopped
     ports:
       - "127.0.0.1:${MONGODB_HOST_PORT:-27017}:27017"
@@ -74,7 +74,7 @@ services:
     # the chat similarity path needs. No plugins: PageRank and the hub layer are computed in the
     # services, not by APOC or GDS.
     image: neo4j:5.26-community
-    container_name: bb-stack-neo4j
+    container_name: local-neo4j
     restart: unless-stopped
     ports:
       - "127.0.0.1:${NEO4J_HTTP_HOST_PORT:-7474}:7474"
@@ -98,7 +98,7 @@ services:
   admin-dashboard:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:admin-dashboard-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: bb-stack-admin-ui
+    container_name: prod-admin-ui
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.env}
@@ -117,7 +117,7 @@ services:
   # ── HAProxy (API routing + load balancing across MCP replicas) ──────────────
   haproxy:
     image: haproxy:2.9-alpine
-    container_name: bb-stack-haproxy
+    container_name: prod-haproxy
     restart: unless-stopped
     ports:
       - "80:80"
@@ -144,7 +144,7 @@ services:
   knowledge-server:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:ingestion-engine-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: bb-stack-knowledge
+    container_name: prod-knowledge
     restart: unless-stopped
     command: ["/app/bytebell-knowledge-server"]
     env_file:
@@ -178,7 +178,7 @@ services:
   admin-server:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:ingestion-engine-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: bb-stack-admin
+    container_name: prod-admin
     restart: unless-stopped
     command: ["/app/bytebell-admin-server"]
     env_file:
@@ -211,7 +211,7 @@ services:
   email-dispatcher:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:ingestion-engine-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: bb-stack-email-dispatcher
+    container_name: prod-email-dispatcher
     restart: unless-stopped
     command: ["/app/bytebell-email-dispatcher"]
     env_file:
@@ -237,7 +237,7 @@ services:
   conversation-memory:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:conversation-memory-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: bb-stack-conversation-memory
+    container_name: prod-conversation-memory
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.env}
@@ -263,7 +263,7 @@ services:
   mcp-server-1:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:mcp-server-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: bb-stack-mcp-1
+    container_name: prod-mcp-1
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.env}
@@ -296,7 +296,7 @@ services:
   mcp-server-2:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:mcp-server-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: bb-stack-mcp-2
+    container_name: prod-mcp-2
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.env}
@@ -329,7 +329,7 @@ services:
   mcp-server-3:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:mcp-server-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: bb-stack-mcp-3
+    container_name: prod-mcp-3
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.env}
@@ -362,7 +362,7 @@ services:
   mcp-server-4:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:mcp-server-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: bb-stack-mcp-4
+    container_name: prod-mcp-4
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.env}
@@ -408,7 +408,7 @@ services:
     profiles: ["system-manager"]
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:system-manager-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: bb-stack-system-manager
+    container_name: prod-system-manager
     restart: unless-stopped
     ports:
       # LOOPBACK ONLY. This is the update-control API — it pulls images and replaces running
@@ -492,7 +492,7 @@ services:
   public-agent-1:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:public-agent-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: bb-stack-public-agent-1
+    container_name: prod-public-agent-1
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.env}
@@ -515,7 +515,7 @@ services:
   public-agent-2:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:public-agent-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: bb-stack-public-agent-2
+    container_name: prod-public-agent-2
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.env}
@@ -538,7 +538,7 @@ services:
   # ── Log Cleaner (prune logs older than 7 days) ─────────────────────────────
   log-cleaner:
     image: alpine:3.19
-    container_name: bb-stack-log-cleaner
+    container_name: prod-log-cleaner
     restart: unless-stopped
     volumes:
       - ./logs:/logs
@@ -557,14 +557,25 @@ services:
 # =============================================================================
 # Volumes
 # =============================================================================
+# Every volume is NAMED, and the name is exactly the one compose has always derived from the
+# project (`<COMPOSE_PROJECT_NAME>_<volume>`, `bb-stack_…` when the env file sets none) — so a
+# server upgrading to this file reattaches its existing databases rather than starting empty.
+# Restarts, recreates, `down` and updates keep them; only `down -v` or `docker volume rm` deletes one.
 volumes:
   redis_data:
+    name: ${COMPOSE_PROJECT_NAME:-bb-stack}_redis_data
   updater_state:
+    name: ${COMPOSE_PROJECT_NAME:-bb-stack}_updater_state
   shared-config:
+    name: ${COMPOSE_PROJECT_NAME:-bb-stack}_shared-config
   conversation-ladybug:
-  # `localhost` deployment only — see the mongodb / neo4j services.
+    name: ${COMPOSE_PROJECT_NAME:-bb-stack}_conversation-ladybug
+  # `localhost` deployment only — see the mongodb / neo4j services. Only the local environment runs
+  # MongoDB and Neo4j, so they and their volumes are named `local` whatever else runs.
   mongo_data:
+    name: local_mongo_data
   neo4j_data:
+    name: local_neo4j_data
 
 # =============================================================================
 # Networks

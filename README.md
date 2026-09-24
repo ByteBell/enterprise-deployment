@@ -194,16 +194,15 @@ of them:
 | `FALLBACK_PROFILE` | where a call goes while its provider refuses on capacity | `llm/fallback-<name>.env` | Must NOT name the same provider as `LLM_PROFILE` |
 | `AGENT_PROFILE` | the public repo page — question runs and PR reviews | `llm/agent-<name>.env` | A long tool-calling loop wanting one strong model with reasoning on |
 
-Copy the templates you need and fill in the credential:
+You do not copy anything: `./install.sh` creates every `llm/<name>.env` from its
+`llm/<name>.env.example` the first time, and never overwrites one that already exists. The templates
+carry no credentials — every key is `replace-me-in-stack-settings`, so the stack boots but no model
+call succeeds until you enter the real keys on the dashboard's **Stack Settings → LLM profiles**
+page. That page stores each provider's profile (samples in `llm/providers/`) in MongoDB and rewrites
+the slot's file when you attach it. Editing `llm/*.env` by hand still works, but the next save from
+the page overwrites that file.
 
-```bash
-cp llm/gemini.env.example         llm/gemini.env
-cp llm/ingest-baseten.env.example llm/ingest-baseten.env
-cp llm/agent-baseten.env.example  llm/agent-baseten.env
-$EDITOR llm/*.env
-```
-
-Then name them in your env file:
+Name the profiles in your env file:
 
 ```
 LLM_PROFILE=gemini
@@ -212,7 +211,7 @@ FALLBACK_PROFILE=openrouter
 AGENT_PROFILE=baseten
 ```
 
-`llm/*.env` is gitignored — the templates are tracked, your filled-in copies are not. **A profile
+`llm/*.env` is gitignored — the templates are tracked, the copies holding your keys are not. **A profile
 you name must exist.** An unset or misspelled slot resolves to a file that is not there and compose
 refuses to start anything, which is the intended loud failure rather than a container that boots
 without a credential.
@@ -305,18 +304,18 @@ make logs prod s="public-agent-1 public-agent-2 knowledge-server mcp-server-1 mc
 For one container's recent output without following, use its container name:
 
 ```bash
-sudo docker logs bb-stack-knowledge --tail 200
-sudo docker logs bb-stack-public-agent-1 --since 10m
-sudo docker logs bb-stack-mcp-3 --tail 500 2>&1 | grep -i error
+sudo docker logs prod-knowledge --tail 200
+sudo docker logs prod-public-agent-1 --since 10m
+sudo docker logs prod-mcp-3 --tail 500 2>&1 | grep -i error
 ```
 
-Container names are `bb-stack-<service>`; MCP replicas are `bb-stack-mcp-1` to `-4` and the public
-agents `bb-stack-public-agent-1` and `-2`.
+Container names are `prod-<service>`; MCP replicas are `prod-mcp-1` to `-4` and the public
+agents `prod-public-agent-1` and `-2`.
 
 **When chasing one review or question:** the four MCP replicas sit behind HAProxy with sticky
 sessions keyed on `mcp-session-id`, so every graph call of a single run lands on ONE replica.
 `docker logs` on that replica is far less noise than the four-way stream. HAProxy's own log
-(`sudo docker logs bb-stack-haproxy`) shows which backend each session was pinned to.
+(`sudo docker logs prod-haproxy`) shows which backend each session was pinned to.
 
 ### Upgrading
 

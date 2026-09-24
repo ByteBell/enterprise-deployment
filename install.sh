@@ -109,6 +109,19 @@ dupes=$(grep -oE "^[[:space:]]*[A-Z0-9_]+=" "$ROOT/$ENV_FILE" | tr -d ' ' | sort
 [ -z "$dupes" ] || die "$ENV_FILE defines these keys more than once — the LAST one silently wins and the
   earlier one still reads as though it were in force. Delete the duplicates:$dupes"
 
+# Every profile template becomes a real profile file the first time, holding the templates'
+# `replace-me-in-stack-settings` keys: the stack boots on them and the real keys are entered on
+# the dashboard's Stack Settings page. A profile file that already exists is NEVER overwritten —
+# it holds this deployment's own keys. (`llm/providers/` are the page's samples, not profiles.)
+created=""
+for tpl in "$ROOT"/llm/*.env.example; do
+  f="${tpl%.example}"
+  [ -e "$f" ] && continue
+  cp "$tpl" "$f"
+  created="$created ${f#"$ROOT"/}"
+done
+[ -z "$created" ] || ok "created from templates (enter their keys in Stack Settings):$created"
+
 # A profile is a FILE named by its slot. A slot naming a file that is not there is what
 # compose refuses on at start; a blank key inside the agent profile is what public-agent
 # refuses to BOOT on. Both are caught here, by name.
@@ -117,7 +130,7 @@ for slot in "LLM_PROFILE:%s.env" "INGEST_PROFILE:ingest-%s.env" "FALLBACK_PROFIL
   # shellcheck disable=SC2059
   f="llm/$(printf "$pat" "$(envget "$k")")"
   [ -f "$ROOT/$f" ] || die "$k=$(envget "$k") names $f, which does not exist.
-  Copy the matching llm/*.env.example to that name and fill it in — see README, Step 3b."
+  There is no llm/*.env.example of that name to create it from — pick a profile that exists."
 done
 agentf="llm/agent-$(envget AGENT_PROFILE).env"
 for k in AGENT_LLM_BASE_URL AGENT_LLM_API_KEY AGENT_MODEL AGENT_REASONING_EFFORT AGENT_MAX_COMPLETION_TOKENS; do
@@ -153,6 +166,11 @@ esac
 # The stack listens on :80. Another compose project holding it is the usual reason a fresh
 # install "comes up" and then serves someone else's containers.
 PROJECT_NAME="$(envget COMPOSE_PROJECT_NAME)"; PROJECT_NAME="${PROJECT_NAME:-bb-stack}"
+# The project name also names every volume (<project>_mongo_data …). `local` and `dev` are the
+# development environments' — production under either would attach their data.
+case "$PROJECT_NAME" in
+  local|dev) die "COMPOSE_PROJECT_NAME=$PROJECT_NAME belongs to a development environment — production needs its own (e.g. prod), or it shares their volumes" ;;
+esac
 holder=$("${DOCKER[@]}" ps --format '{{.Names}}\t{{.Ports}}\t{{.Label "com.docker.compose.project"}}' \
   | awk -F'\t' '$2 ~ /(^|[^0-9])80->/ && $3 != "'"$PROJECT_NAME"'" {print $1" (compose project "$3")"}' | head -1)
 [ -z "$holder" ] || die "port 80 is held by $holder, which this install would not replace — stop that stack first."
