@@ -577,6 +577,12 @@ volumes:
 # =============================================================================
 # Networks
 # =============================================================================
+# One network per environment (plumbline-local, plumbline-dev, plumbline-prod), named like the
+# containers. A single fixed name was shared by every environment on a host, so local and dev joined
+# the same network, both Redis containers answered to `redis` on it, and bringing one environment down
+# could leave the other's containers detached from it. `plumbline-` rather than `<env>-stack` because
+# the monorepo's build compose already owns `local-stack`, and compose refuses a network another
+# project created.
 networks:
   stack-net:
-    name: bytebell-stack
+    name: plumbline-${STACK_ENV:-prod}
