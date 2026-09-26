@@ -2,7 +2,6 @@
 # SERVER 2 — ByteBell Application Stack (registry deployment)
 # =============================================================================
 # Runs on client-owned infrastructure.
-# system-manager autonomously updates all services via Docker socket.
 #
 # This stack connects OUTBOUND to Neo4j at NEO4J_URI (the `neo4j` container on localhost).
 #
@@ -36,7 +35,7 @@ services:
       # the host has. Every service that needs it reaches it over the compose network by name, not
       # through this mapping — it exists for `redis-cli` on the host during triage. Delete the two
       # lines below entirely if you never need that.
-      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --save "" --stop-writes-on-bgsave-error no
@@ -129,8 +128,8 @@ services:
     container_name: ${STACK_ENV:-prod}-haproxy
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "8404:8404"
+      - "${HTTP_HOST_PORT:-80}:80"
+      - "${HAPROXY_STATS_HOST_PORT:-8404}:8404"
     volumes:
       - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
       - ./haproxy/errors:/etc/haproxy/errors:ro
@@ -163,7 +162,7 @@ services:
       - llm/agent-${AGENT_PROFILE}.env
     volumes:
       - ./logs/knowledge-server:/app/logs
-      - ./temp:/app/temp
+      - ${TEMP_DIR:-./temp}:/app/temp
     environment:
       # Server sets NODE_ENV=production in .env (→ JSON logs); local defaults to development (→ pretty).
       NODE_ENV: ${NODE_ENV:-development}
@@ -193,7 +192,7 @@ services:
     volumes:
       - ./logs/admin-server:/app/logs
       - ./logs:/app/all-logs:ro
-      - ./temp:/app/temp
+      - ${TEMP_DIR:-./temp}:/app/temp
     environment:
       # Server sets NODE_ENV=production in .env (→ JSON logs); local defaults to development (→ pretty).
       NODE_ENV: ${NODE_ENV:-development}
@@ -280,7 +279,7 @@ services:
       - KNOWLEDGE_BASE_PATH=/app/temp
     volumes:
       - ./logs/mcp/mcp-1:/app/mcp-server/logs
-      - ./temp:/app/temp
+      - ${TEMP_DIR:-./temp}:/app/temp
     read_only: true
     tmpfs:
       - /tmp
@@ -312,7 +311,7 @@ services:
       - KNOWLEDGE_BASE_PATH=/app/temp
     volumes:
       - ./logs/mcp/mcp-2:/app/mcp-server/logs
-      - ./temp:/app/temp
+      - ${TEMP_DIR:-./temp}:/app/temp
     read_only: true
     tmpfs:
       - /tmp
@@ -344,7 +343,7 @@ services:
       - KNOWLEDGE_BASE_PATH=/app/temp
     volumes:
       - ./logs/mcp/mcp-3:/app/mcp-server/logs
-      - ./temp:/app/temp
+      - ${TEMP_DIR:-./temp}:/app/temp
     read_only: true
     tmpfs:
       - /tmp
@@ -376,7 +375,7 @@ services:
       - KNOWLEDGE_BASE_PATH=/app/temp
     volumes:
       - ./logs/mcp/mcp-4:/app/mcp-server/logs
-      - ./temp:/app/temp
+      - ${TEMP_DIR:-./temp}:/app/temp
     read_only: true
     tmpfs:
       - /tmp
@@ -386,83 +385,6 @@ services:
       resources:
         limits:
           memory: 8g
-    networks:
-      - stack-net
-
-  # ── System Manager (license gate + autonomous service updates) ──────────────
-  # SWITCHED OFF. Behind a profile, so a normal `make up` does not start it, and
-  # `docker compose --profile system-manager up -d system-manager` brings it back.
-  #
-  # It is not just one fewer container: the three app services ran with the `prod`
-  # runtime argument, which makes @bytebell/config source every dynamic key from this
-  # service's /config and REFUSE TO START when it is unreachable — so a system-manager
-  # that failed took the whole stack down with it. That argument is gone with it, and
-  # each service now reads its env file directly.
-  #
-  # Consequence: the licence gate no longer runs, and a key that only ever lived in
-  # etcd must be present in the env file or it is simply unset.
-  system-manager:
-    profiles: ["system-manager"]
-    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:system-manager-${IMAGE_TAG:-latest}
-    <<: *registry-image
-    container_name: ${STACK_ENV:-prod}-system-manager
-    restart: unless-stopped
-    ports:
-      # LOOPBACK ONLY. This is the update-control API — it pulls images and replaces running
-      # containers. HAProxy reaches it over the compose network by name, and the browser reaches it
-      # through HAProxy on :80, so nothing legitimate needs it on a public interface. It is guarded by
-      # UPDATE_API_TOKEN, but a token is the second line of defence, not the first.
-      - "127.0.0.1:3003:3003"
-    env_file:
-      - ${ENV_FILE:-.env}
-      - llm/${LLM_PROFILE}.env
-      - llm/ingest-${INGEST_PROFILE}.env
-      - llm/fallback-${FALLBACK_PROFILE}.env
-      - llm/agent-${AGENT_PROFILE}.env
-    environment:
-      # system-manager must stay on 3003 (haproxy + app config-fetch + healthcheck all target :3003).
-      # Pin it here so the shared .env PORT (=3002, for admin-server) can't move system-manager off 3003.
-      - PORT=3003
-      # Standalone deployments source config from this .env and never call the ByteBell config
-      # API; LICENSE_KEY / CLIENT_ID are unused and may be blank. `:-` on both so a standalone
-      # .env that omits them entirely doesn't trip a compose interpolation warning.
-      - STANDALONE_MODE=${STANDALONE_MODE:-false}
-      - LICENSE_KEY=${LICENSE_KEY:-}
-      # Token-auth registry (private Docker Hub). Blank on ECR — the AWS_* creds below apply.
-      - REGISTRY_USERNAME=${BYTEBELL_REGISTRY_USERNAME:-}
-      - REGISTRY_TOKEN=${BYTEBELL_REGISTRY_TOKEN:-}
-      - UPDATE_API_TOKEN=${UPDATE_API_TOKEN:-}
-      - CLIENT_ID=${CLIENT_ID:-}
-      - CURRENT_VERSION=${IMAGE_TAG:-}
-      - CHECK_INTERVAL=3600
-      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-bb-stack}
-      - COMPOSE_FILE=${COMPOSE_PROJECT_DIR}/docker-compose-stack.yml
-      - ENV_FILE=${COMPOSE_PROJECT_DIR}/.env
-      - COMPOSE_PROJECT_DIR=${COMPOSE_PROJECT_DIR}
-      # ECR pull credential (ByteBell-provided), mapped onto the standard AWS names the
-      # SDK expects. `environment` overrides `env_file`, so this container authenticates
-      # to the registry with ByteBell's pull-only key while every other service keeps the
-      # customer's own AWS_* from .env for their S3 bucket. system-manager never uses S3.
-      - AWS_REGION=${BYTEBELL_ECR_REGION:-us-east-1}
-      - AWS_ACCESS_KEY_ID=${BYTEBELL_ECR_ACCESS_KEY_ID:-}
-      - AWS_SECRET_ACCESS_KEY=${BYTEBELL_ECR_SECRET_ACCESS_KEY:-}
-      # Both halves — localImageRef (rolling-update.ts) skips the rewrite if either is missing.
-      - IMAGE_REGISTRY=${IMAGE_REGISTRY}
-      - IMAGE_REPO_PREFIX=${IMAGE_REPO_PREFIX}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${COMPOSE_PROJECT_DIR}:${COMPOSE_PROJECT_DIR}
-      - updater_state:/app/state
-      - shared-config:/shared-config
-      - ./.env:/app/.env.client:ro
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3003/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 60s
     networks:
       - stack-net
 
@@ -561,10 +483,6 @@ services:
 volumes:
   redis_data:
     name: ${COMPOSE_PROJECT_NAME:-bb-stack}_redis_data
-  updater_state:
-    name: ${COMPOSE_PROJECT_NAME:-bb-stack}_updater_state
-  shared-config:
-    name: ${COMPOSE_PROJECT_NAME:-bb-stack}_shared-config
   conversation-ladybug:
     name: ${COMPOSE_PROJECT_NAME:-bb-stack}_conversation-ladybug
   # `localhost` deployment only — see the mongodb / neo4j services. Only the local environment runs

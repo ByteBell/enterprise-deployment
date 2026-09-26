@@ -102,9 +102,6 @@ required=(IMAGE_REGISTRY IMAGE_REPO_PREFIX IMAGE_REPO_NAME REGISTRY_USERNAME REG
           FILE_STORAGE_BACKEND FRONTEND_BASE_URL
           LLM_PROFILE INGEST_PROFILE FALLBACK_PROFILE AGENT_PROFILE)
 [ "$SEED" = yes ] && required+=(SEED_ORG_NAME SEED_CLIENT_EMAIL SEED_CLIENT_PASSWORD)
-# Guards system-manager's update API. localhost never runs system-manager, and its admin-server answers
-# update requests with dev stubs, so the token is only asked of dev and prod.
-[ "$ENV_NAME" = local ] || required+=(UPDATE_API_TOKEN)
 case "$(envget FILE_STORAGE_BACKEND)" in
   s3)    required+=(S3_FILES_BUCKET) ;;
   local|"") ;;
@@ -172,8 +169,9 @@ case "$ENV_NAME-$origin" in
   dev-*|local-*) printf '   note: %s, but FRONTEND_BASE_URL is %s (not localhost) — intended?\n' "$ENV_NAME" "$origin" ;;
 esac
 
-# The stack listens on :80. Another compose project holding it is the usual reason a fresh
-# install "comes up" and then serves someone else's containers.
+# The stack listens on HTTP_HOST_PORT (80 unless the env file moves it). Another compose project
+# holding it is the usual reason a fresh install "comes up" and then serves someone else's containers.
+HTTP_PORT="$(envget HTTP_HOST_PORT)"; HTTP_PORT="${HTTP_PORT:-80}"
 PROJECT_NAME="$(envget COMPOSE_PROJECT_NAME)"; PROJECT_NAME="${PROJECT_NAME:-bb-stack}"
 # The project name also names every volume (<project>_mongo_data …). `local` and `dev` are the
 # development environments' — production under either would attach their data. The check is
@@ -184,8 +182,8 @@ if [ "$ENV_NAME" = prod ]; then
   esac
 fi
 holder=$("${DOCKER[@]}" ps --format '{{.Names}}\t{{.Ports}}\t{{.Label "com.docker.compose.project"}}' \
-  | awk -F'\t' '$2 ~ /(^|[^0-9])80->/ && $3 != "'"$PROJECT_NAME"'" {print $1" (compose project "$3")"}' | head -1)
-[ -z "$holder" ] || die "port 80 is held by $holder, which this install would not replace — stop that stack first."
+  | awk -F'\t' '$2 ~ /(^|[^0-9])'"$HTTP_PORT"'->/ && $3 != "'"$PROJECT_NAME"'" {print $1" (compose project "$3")"}' | head -1)
+[ -z "$holder" ] || die "port $HTTP_PORT is held by $holder, which this install would not replace — stop that stack first, or set HTTP_HOST_PORT in $ENV_FILE."
 
 # ── 2. Which release to run ─────────────────────────────────────────────────
 # There is no `latest` tag to point at — every tag names a service AND a version
@@ -299,9 +297,9 @@ compose up -d --remove-orphans
 
 # ── 5. Wait until it SERVES — "the containers are up" is not the same thing ──
 # A live route in front of a dead backend answers 503 and still looks healthy in `ps`.
-# localhost on purpose, in production too: you are ON the host, and :80 here is HAProxy.
+# localhost on purpose, in production too: you are ON the host, and HTTP_HOST_PORT here is HAProxy.
 say "waiting for the stack to serve"
-probe() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://localhost$1" 2>/dev/null || echo 000; }
+probe() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://localhost:$HTTP_PORT$1" 2>/dev/null || echo 000; }
 a=000; k=000
 for _ in $(seq 1 60); do
   a=$(probe /api/admin/health); k=$(probe /api/knowledge/health)
@@ -335,7 +333,7 @@ cat <<EOF
   Dashboard      $origin/admin
   Admin API      $origin/api/admin/health
   Knowledge API  $origin/api/knowledge/health
-  HAProxy stats  http://localhost:8404/stats
+  HAProxy stats  http://localhost:$(v="$(envget HAPROXY_STATS_HOST_PORT)"; echo "${v:-8404}")/stats
 EOF
 if [ "$SEED" = yes ]; then
   cat <<EOF
@@ -345,6 +343,13 @@ if [ "$SEED" = yes ]; then
   Neo4j browser  http://127.0.0.1:$(envget NEO4J_HTTP_HOST_PORT)
 EOF
 fi
+cat <<EOF
+
+  Developers get /plumbline-verify, /plumbline-blast and /plumbline-resolve-issue in Claude Code,
+  Codex and OpenCode with an MCP key from the dashboard (MCP keys) — see "Agent commands" in README.md:
+                 npm install -g github:ByteBell/plumbline-skills
+                 plumbline install --url $origin --key mcp_…
+EOF
 cat <<EOF
 
   Upgrading is this same command again. Pin IMAGE_TAG in $ENV_FILE to hold this

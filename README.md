@@ -49,7 +49,6 @@ One HAProxy in front, a handful of services behind it, all on one Docker network
 | `public-agent-1,2` | Answers questions about repositories you have published | `/api/v1/public/agent/*` |
 | `conversation-memory` | Chat memory (single instance — it owns an embedded database) | internal |
 | `email-dispatcher` | Outbound mail | internal |
-| `system-manager` | Applies updates, snapshots for rollback | `/system/status` |
 | `redis` | Job queues, caches, rate-limit counters | loopback only |
 | `log-cleaner` | Deletes logs older than 7 days | — |
 
@@ -64,7 +63,6 @@ databases should not share a lifecycle with application containers you replace o
 From ByteBell:
 
 - **Docker Hub username + read-only token** for the private image repository
-- **`CLIENT_ID` and `LICENSE_KEY`** (unless you run `STANDALONE_MODE=true`)
 - the **image tag** to run, e.g. `5.0.2`
 
 Your own:
@@ -156,11 +154,10 @@ When two files both define a key, the last one read silently wins — and the de
 still sits there reading as though it were in force.
 
 Work top to bottom. Every `[REQUIRED]` line must be filled; each one says what it is for. Generate
-the two secrets rather than inventing them:
+the secret rather than inventing it:
 
 ```bash
 openssl rand -hex 32     # JWT_SECRET
-openssl rand -hex 32     # UPDATE_API_TOKEN — dev and prod only; localhost has no update API
 ```
 
 Two that are easy to get wrong:
@@ -273,6 +270,103 @@ public-questions line **a 4xx is the correct answer** — the service rejected a
 
 ---
 
+## Step 5 — Agent commands for your developers
+
+Once a repository is indexed, every developer can use four commands inside the coding agent they
+already run — **Claude Code**, **OpenCode** or **Codex**:
+
+| Command | What it does |
+| --- | --- |
+| `/plumbline-verify [from] [to]` | Reviews the change between two commits (default: the last commit) against every caller in every indexed repository. Output is a GitHub-style review. |
+| `/plumbline-review-pr <PR URL \| #n> [more PRs]` | The same review for a GitHub, GitLab or Bitbucket pull request, fetched without switching your branch. Several PRs across repositories are reviewed as one change. |
+| `/plumbline-blast <file[:lines] \| symbol \| pasted code>` | What depends on this code and what breaks if it changes, laid out like the IDE's Find All References. |
+| `/plumbline-resolve-issue <issue text \| issue URL>` | Finds every file the issue touches, writes failing tests first, then the fix, then runs the tests until they pass. Nothing is committed. |
+
+**Each developer needs** Node 18+, the address of this deployment, and an MCP key: in the dashboard,
+**MCP keys** → copy the `mcp_…` key. Then, once:
+
+```bash
+npm install -g github:ByteBell/plumbline-skills
+plumbline install --url https://plumbline.acme.com --key mcp_…
+```
+
+`plumbline install` checks the key against `<url>/mcp` first and refuses a wrong one, then installs
+into every agent it finds on the PATH, for the developer's user. Restart the agent afterwards.
+
+Full usage for each command — arguments, examples, what it does, what the output looks like — is in
+the tool itself:
+
+```bash
+plumbline help                   # overview
+plumbline help verify            # /plumbline-verify
+plumbline help blast             # /plumbline-blast
+plumbline help resolve-issue     # /plumbline-resolve-issue
+plumbline help review-pr         # /plumbline-review-pr
+plumbline help repos             # --repos: across repositories
+plumbline help install           # install, update, uninstall, where files go
+```
+
+```bash
+plumbline install --url … --key … --agents claude,opencode    # only these agents
+plumbline install --url … --key … --project ~/code/my-repo    # only this one repository
+plumbline uninstall                                           # remove everything it added
+```
+
+`npm install -g` only puts the `plumbline` tool on the PATH; `plumbline install` is what adds the
+commands. Without `--project` it installs for the developer's user, so the commands are in **every**
+session of every agent it installed into, in any directory — they work wherever the repository is
+indexed and say so where it is not. With `--project` they exist only in sessions started in that
+repository.
+
+To point at a different deployment or use a new key, run `plumbline install` again with the new
+`--url` / `--key` and restart the agent. It replaces the `plumbline` entry and checks the new pair
+first, so a wrong one leaves the old setup working. Moving between `--project` and a user install,
+`plumbline uninstall` the old one first: in Claude Code a project entry wins inside that repository.
+
+To update, run both again — `install` copies the command files, it does not link them:
+
+```bash
+npm install -g github:ByteBell/plumbline-skills
+plumbline install --url … --key …
+```
+
+**Running them** — inside a checkout of an indexed repository:
+
+```text
+Claude Code, OpenCode   /plumbline-verify            /plumbline-verify a1b2c3d HEAD
+                        /plumbline-blast src/api/orders.ts
+                        /plumbline-resolve-issue https://github.com/acme/app/issues/412
+Codex                   /prompts:plumbline-verify    (same arguments; Codex prefixes custom prompts)
+```
+
+**How it works.** Each command is a markdown file — a prompt — that `plumbline install` copies into the
+agent's command folder (`~/.claude/commands/`, `~/.config/opencode/command/`, `~/.codex/prompts/`), next
+to an MCP server entry for `<url>/mcp` with the key. Typing the command hands that prompt, with the
+arguments filled in, to the model the developer is already using. That model then:
+
+- queries **this deployment** through MCP for the graph — callers, dependents, which files an issue
+  touches, across every indexed repository;
+- works in **the developer's own checkout** for everything else — `git diff`, reading and editing
+  files, running the tests.
+
+So this stack answers graph queries only. It runs no model for these commands, and no code leaves
+the developer's machine except the queries themselves. Token cost is the developer's own agent's.
+
+### When it does not work
+
+| Symptom | Cause |
+| --- | --- |
+| `answered HTTP 401 to that key` | Wrong or deactivated key — copy it again from **MCP keys**. |
+| `cannot reach …/mcp` | Wrong `--url`, or the stack is down (`./install.sh` status, `make verify`). |
+| "This repository is not indexed" | Add the repository in the dashboard and let it finish indexing. |
+| The commands do not appear | Restart the agent. With `--project`, run the agent from inside that directory. |
+| A result says the index is N commits behind | Normal — the repository was indexed at an older commit. Re-index for fresh dependents. |
+
+With `--project`, the key is written into that repository's `.mcp.json` / `opencode.json`: keep both
+out of git.
+
+---
+
 ## Day to day
 
 Every target takes `dev`, `prod` or `local` (also spelled `localhost`) as its last word, and `dev` is what you get if you
@@ -375,11 +469,10 @@ and a pinned tag stops the lookup, so you stay there until you clear it.
 | --- | --- |
 | `80` | **Open it.** This is the application. |
 | `8404` | HAProxy stats. Keep it closed; reach it over SSH. |
-| `6379`, `3003` | Bound to `127.0.0.1` in this compose and unreachable from outside the host. |
+| `6379` | Bound to `127.0.0.1` in this compose and unreachable from outside the host. |
 
-Redis runs without a password and holds job payloads, and `:3003` is the API that replaces running
-containers — neither belongs on a public interface, which is why both are pinned to loopback here. If
-you change those mappings, change your firewall to match.
+Redis runs without a password and holds job payloads — it does not belong on a public interface,
+which is why it is pinned to loopback here. If you change that mapping, change your firewall to match.
 
 Put TLS in front of `:80` — a reverse proxy or a load balancer — before exposing this to the
 internet. Nothing in this stack terminates TLS.
@@ -439,6 +532,6 @@ Application data lives in your MongoDB, your Neo4j and your S3 bucket (or `./tem
 `FILE_STORAGE_BACKEND=local`) — back those up as you would any database.
 
 On the host itself, these Docker volumes hold state: `redis_data` (queues in flight),
-`conversation-ladybug` (chat memory), `updater_state` and `shared-config`. Under `localhost`,
+`conversation-ladybug` (chat memory). Under `localhost`,
 `mongo_data` and `neo4j_data` are the databases themselves — there is no copy anywhere else.
 `make down` keeps them; `docker compose down -v` destroys them.

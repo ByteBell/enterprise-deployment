@@ -128,65 +128,15 @@ Content-Type: text/html
 
     <div class="badge">
       <span class="badge-dot"></span>
-      <span class="badge-text" id="badge-label">Checking&hellip;</span>
+      <span class="badge-text">Offline</span>
     </div>
 
-    <h1 id="err-title">Connecting to system</h1>
-    <p class="desc" id="err-desc">Fetching system status, please wait.</p>
+    <h1>System temporarily unavailable</h1>
+    <p class="desc">ByteBell services are currently offline.</p>
 
     <div class="sep"></div>
     <p class="contact">Contact your administrator if this issue persists.</p>
   </div>
 
-  <script>
-    var BADGE  = document.getElementById('badge-label');
-    var TITLE  = document.getElementById('err-title');
-    var DESC   = document.getElementById('err-desc');
-
-    var MSGS = {
-      revoked: {
-        badge: 'Access Revoked',
-        title: 'Your access has been revoked',
-        desc:  'This installation\u2019s access to the ByteBell platform has been revoked. Please contact your administrator to restore access.'
-      },
-      invalid: {
-        badge: 'Access Revoked',
-        title: 'Your access has been revoked',
-        desc:  'This installation\u2019s access to the ByteBell platform has been revoked. Please contact your administrator to restore access.'
-      },
-      expired: {
-        badge: 'System Unreachable',
-        title: 'System is currently unreachable',
-        desc:  'ByteBell cannot reach the licensing server and services have been paused. Please contact your administrator.'
-      },
-      degraded: {
-        badge: 'Degraded',
-        title: 'System temporarily unavailable',
-        desc:  'ByteBell is experiencing connectivity issues. Services may restart shortly.'
-      },
-      pending: {
-        badge: 'Starting Up',
-        title: 'System is starting up',
-        desc:  'ByteBell services are initializing. Please wait a moment and refresh the page.'
-      },
-      _fallback: {
-        badge: 'Offline',
-        title: 'System temporarily unavailable',
-        desc:  'ByteBell services are currently offline. Please contact your administrator.'
-      }
-    };
-
-    function render(key) {
-      var s = MSGS[key] || MSGS['_fallback'];
-      BADGE.textContent = s.badge;
-      TITLE.textContent = s.title;
-      DESC.textContent  = s.desc;
-    }
-
-    fetch('/system/status', { signal: AbortSignal.timeout(5000) })
-      .then(function(r) { return r.json(); })
-      .then(function(d) { render(d.license || '_fallback'); })
-      .catch(function()  { render('_fallback'); });
-  </script>
 </body>
 </html>
