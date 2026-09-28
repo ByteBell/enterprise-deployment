@@ -10,6 +10,12 @@ registry, and you need a read-only token from ByteBell to pull them.
 ```bash
 git clone https://github.com/ByteBell/enterprise-deployment.git plumbline
 cd plumbline
+
+# A laptop or test box — MongoDB and Neo4j run here, files stay in ./temp, no S3
+cp .env.localhost.example .localhost.env     # fill it in — see the Quick start below
+./install.sh --env local
+
+# A real host on its own domain — your MongoDB, Neo4j and S3 bucket
 cp .env.production.example .production.env   # fill it in — see Step 3
 ./install.sh --env prod
 ```
@@ -21,8 +27,8 @@ says it is up. Running it again is also how you upgrade.
 
 | | reads | what you get |
 | --- | --- | --- |
-| `./install.sh --env prod` | `.production.env` | the real host, on its own domain |
-| `./install.sh --env local` | `.localhost.env` | a laptop or test box at `http://localhost:8081`; MongoDB and Neo4j run **here** and one superadmin signs in by email and password — nothing to run elsewhere, no OAuth app to register |
+| `./install.sh --env local` | `.localhost.env` | a laptop or test box at `http://localhost:8081`; MongoDB and Neo4j run **here**, files stay in `./temp` (no S3), and one superadmin signs in by email and password — nothing to run elsewhere, no OAuth app to register |
+| `./install.sh --env prod` | `.production.env` | the real host, on its own domain, with your MongoDB, Neo4j and S3 bucket |
 
 `production` and `localhost` mean the same two, so whichever word you reach for
 works. Nothing is ever built: every service is an image pulled from the registry, told apart by
@@ -157,18 +163,17 @@ databases should not share a lifecycle with application containers you replace o
 
 ## Before you start
 
-From ByteBell:
+From ByteBell, for every environment: a **Docker Hub username + read-only token** for the private
+image repository. Leave `IMAGE_TAG` blank and the newest published release is pulled.
 
-- **Docker Hub username + read-only token** for the private image repository
-- the **image tag** to run, e.g. `5.0.2`
+What else you bring depends on which environment this is:
 
-Your own:
-
-- a **Linux host** — 4 vCPU / 16 GB is a sensible floor; ingestion is the hungry part
-- **MongoDB** and **Neo4j**, reachable from that host
-- an **S3 bucket** for repository source, generated specs and snapshots — `dev` and `prod` only;
-  `localhost` keeps every file in `./temp` (`FILE_STORAGE_BACKEND=local`)
-- an **inference endpoint** for public questions — an OpenAI-compatible base URL, a key, a model id
+| | `local` | `prod` | `dev` |
+| --- | --- | --- | --- |
+| Machine | Docker Desktop on a laptop, or any test box | a **Linux host** — 4 vCPU / 16 GB is a sensible floor; ingestion is the hungry part | the ByteBell monorepo checked out |
+| MongoDB + Neo4j | none — started here as containers | yours, reachable from the host | yours, reachable from the machine |
+| File storage | none — `./temp` (`FILE_STORAGE_BACKEND=local`) | an **S3 bucket** for repository source, generated specs and snapshots | an S3 bucket, never production's |
+| LLM keys | **Stack Settings → LLM profiles** on the dashboard | `llm/*.env`, edited by hand (prod has no Stack Settings page) | Stack Settings or `llm/*.env` |
 
 Both CPU architectures are published, so x86_64 and ARM (AWS Graviton, Ampere) both work with no
 change on your side.
