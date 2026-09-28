@@ -17,12 +17,13 @@ DOCKER ?= $(shell docker info >/dev/null 2>&1 && echo docker || echo sudo docker
 # ── Which deployment this invocation is for ──────────────────────────────────
 #
 #     make up prod       → .production.env    the real host, on its own domain
-#     make up dev        → .env               a laptop or test box, on http://localhost, using
-#                                             databases you already run somewhere
-#     make up local      → .localhost.env     the same, plus MongoDB and Neo4j started HERE as
-#                                             containers (the `localhost` compose profile).
-#                                             `localhost` is the same goal.
-#     make up            → .env               same as dev; the default is never production
+#     make up dev        → .dev.env           ByteBell monorepo only: every service runs the monorepo's
+#                                             source and reloads on save (docker-compose.dev.yml), on
+#                                             http://localhost, using databases you already run somewhere
+#     make up local      → .localhost.env     a laptop or test box on http://localhost, released images,
+#                                             with MongoDB and Neo4j started HERE as containers (the
+#                                             `localhost` compose profile). `localhost` is the same goal.
+#     make up            → .dev.env           same as dev; the default is never production
 #
 # `dev`, `prod` and `localhost` are GOALS rather than variables, so they are read out of
 # MAKECMDGOALS and declared as do-nothing targets below.
@@ -31,7 +32,7 @@ DOCKER ?= $(shell docker info >/dev/null 2>&1 && echo docker || echo sudo docker
 # a key are how a stack ends up running settings nobody can see in the file they are reading: the
 # last definition silently wins, and the losing one looks perfectly correct sitting above it.
 BB_ENV        := $(if $(filter prod,$(MAKECMDGOALS)),prod,$(if $(filter localhost local,$(MAKECMDGOALS)),localhost,dev))
-ENV_FILE_dev   = .env
+ENV_FILE_dev   = .dev.env
 ENV_FILE_prod  = .production.env
 ENV_FILE_localhost = .localhost.env
 # The two database containers exist only under this compose profile, so only `localhost` sees
@@ -45,7 +46,8 @@ export STACK_ENV
 # local and dev also get the Stack Settings page (docker-compose.stack-settings.yml mounts the Docker
 # socket into admin-server); prod never does. COMPOSE_PROFILES says the same as $(COMPOSE_PROFILE) —
 # exported too, because admin-server is told it and recreates containers under the same profiles.
-COMPOSE_FILE     := docker-compose.yml$(if $(filter prod,$(BB_ENV)),,:docker-compose.stack-settings.yml)
+# dev adds docker-compose.dev.yml, which runs the monorepo's source in place of the images.
+COMPOSE_FILE     := docker-compose.yml$(if $(filter prod,$(BB_ENV)),,:docker-compose.stack-settings.yml)$(if $(filter dev,$(BB_ENV)),:docker-compose.dev.yml)
 COMPOSE_PROFILES := $(if $(filter localhost,$(BB_ENV)),localhost)
 export COMPOSE_FILE COMPOSE_PROFILES
 
@@ -129,12 +131,12 @@ DOCKER_ENV = $(if $(filter sudo,$(firstword $(DOCKER))),\
 # compose file was interpolated from another — the values disagree and nothing reports it.
 COMPOSE = $(DOCKER_ENV) compose --env-file $(ENV_FILE) $(COMPOSE_PROFILE)
 
-# Refuse rather than fall back. Silently using .env because .production.env is absent is how a
+# Refuse rather than fall back. Silently using .dev.env because .production.env is absent is how a
 # laptop's settings reach a production host.
 define require_env
 	@test -f $(ENV_FILE) || { \
 		echo "✗ $(BB_ENV) needs $(ENV_FILE), which does not exist."; \
-		echo "    dev       → .env              cp .env.example .env"; \
+		echo "    dev       → .dev.env          cp .env.example .dev.env"; \
 		echo "    prod      → .production.env   cp .env.production.example .production.env"; \
 		echo "    local     → .localhost.env    cp .env.localhost.example .localhost.env"; \
 		exit 1; \
@@ -170,8 +172,8 @@ help:
 	@echo ""
 	@echo "  Every target takes the deployment as the last word:"
 	@echo "    make up prod        the real host, reading .production.env"
-	@echo "    make up dev         a laptop or test box, reading .env  (the default)"
-	@echo "    make up local       a laptop, reading .localhost.env, with MongoDB + Neo4j run here"
+	@echo "    make up dev         ByteBell monorepo only: the source, reloaded on save, reading .dev.env  (the default)"
+	@echo "    make up local       a laptop or test box, reading .localhost.env, with MongoDB + Neo4j run here"
 	@echo "                        (localhost is the same goal)"
 	@echo ""
 	@echo "  First run — production:"
@@ -181,16 +183,16 @@ help:
 	@echo "    make verify prod      Prove the stack is actually serving"
 	@echo ""
 	@echo "  First run — local:"
-	@echo "    cp .env.example .env && \$$EDITOR .env"
-	@echo "    make up dev"
-	@echo ""
-	@echo "  First run — local, nothing to run elsewhere:"
 	@echo "    cp .env.localhost.example .localhost.env && \$$EDITOR .localhost.env"
 	@echo "    make up local"
 	@echo "    make superadmin local   Create the email+password superadmin named in the env file"
 	@echo ""
+	@echo "  In the ByteBell monorepo — every service from source, reloaded on save:"
+	@echo "    cp .env.example .dev.env && \$$EDITOR .dev.env"
+	@echo "    make up dev           A package.json / bun.lock or .dev.env change needs 'make up dev' again"
+	@echo ""
 	@echo "  In the ByteBell monorepo — images built from source instead of pulled:"
-	@echo "    set IMAGE_TAG=local in the env file, run 'make build' in the monorepo, then 'make up local|dev'"
+	@echo "    set IMAGE_TAG=local in the env file, run 'make build' in the monorepo, then 'make up local'"
 	@echo "    make up local IMAGE_TAG=latest    Pull and run the newest release instead, env file untouched"
 	@echo "    make up local IMAGE_TAG=5.4.2     Pull and run that release"
 	@echo "    make publish prod VERSION=x.y.z   Multi-arch build + push, via the monorepo's release"
@@ -211,6 +213,9 @@ help:
 preflight:
 	@command -v docker >/dev/null 2>&1 || { echo "✗ docker is not installed — see README, Step 1"; exit 1; }
 	@docker compose version >/dev/null 2>&1 || { echo "✗ the docker compose plugin is missing — see README, Step 1"; exit 1; }
+	@# dev bind-mounts the monorepo's source; outside it Docker would create empty directories there.
+	@test "$(BB_ENV)" != dev -o -d ../services/ingestion-engine/repo -a -d ../frontends/admin-dashboard/repo || \
+	  { echo "✗ dev runs the ByteBell monorepo's source, and ../services is not here — use 'make up local'"; exit 1; }
 	$(call require_env)
 	@missing=""; for k in IMAGE_REGISTRY IMAGE_REPO_PREFIX IMAGE_REPO_NAME REGISTRY_USERNAME \
 	  REGISTRY_TOKEN COMPOSE_PROJECT_DIR MONGODB_URI NEO4J_URI NEO4J_PASSWORD JWT_SECRET \
@@ -281,7 +286,7 @@ preflight:
 
 # The token lands in the config of the user this runs as — see the DOCKER note above.
 login:
-	@test -n "$(REGISTRY_USERNAME)" || { echo "✗ REGISTRY_USERNAME is not set in .env"; exit 1; }
+	@test -n "$(REGISTRY_USERNAME)" || { echo "✗ REGISTRY_USERNAME is not set in $(ENV_FILE)"; exit 1; }
 	@printf '%s' '$(REGISTRY_TOKEN)' | $(DOCKER) login $(IMAGE_REGISTRY) --username '$(REGISTRY_USERNAME)' --password-stdin
 
 # Bind-mounted paths must exist first. Docker creates a missing one as a root-owned directory, and
@@ -343,7 +348,7 @@ ps:
 logs:
 	@$(COMPOSE) logs -f --tail=200 $(s)
 
-# Pull the tag now named in .env and replace the running containers with it. Compose only recreates
+# Pull the tag now named in the env file and replace the running containers with it. Compose only recreates
 # services whose image actually changed, so this is also the no-op if you are already current.
 update: pull
 	$(COMPOSE) up -d

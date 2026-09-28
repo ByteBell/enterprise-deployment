@@ -1,0 +1,245 @@
+# =============================================================================
+# The `dev` deployment — every service runs the monorepo's source, reloaded on save
+# =============================================================================
+# Layered on docker-compose.yml by the Makefile for `make up dev` only, and only inside the ByteBell
+# monorepo: the source is mounted from ../services and ../frontends, which a deployment does not have.
+#
+# No image is built. Each app service runs `oven/bun:1` over its repository bind-mounted at /src:
+#   - backends:        `bun --watch <entry>` restarts the process when any file it imports changes
+#   - admin-dashboard: the Vite dev server, so the browser hot-swaps modules (HMR through haproxy)
+#
+# node_modules are NOT the host's. The host trees hold macOS builds (rollup, swc, libsql, ladybug
+# .node files) that cannot load in Linux, so every node_modules directory — nested ones included — is
+# covered by a named volume, and `source-deps` fills those volumes with `bun install` before anything
+# starts. A dependency change (package.json / bun.lock) needs `make up dev` again to reinstall; an
+# env-file change needs the container recreated. Everything else reloads on its own.
+#
+# `--no-env-file`: Bun otherwise auto-loads a .env from the working directory, and the service repos
+# carry their own local-key .env files. The containers read only what compose hands them, exactly
+# as the built images do.
+#
+# conversation-memory keeps its built image: it runs under Node against the native LadybugDB addon,
+# which the Bun image here does not provide.
+
+x-source: &source
+  image: oven/bun:1
+  pull_policy: missing
+  depends_on:
+    source-deps:
+      condition: service_completed_successfully
+    redis:
+      condition: service_healthy
+
+services:
+  # One-shot: install every repository's dependencies into the node_modules volumes, then exit.
+  # --frozen-lockfile so a drifted lockfile fails here, loudly, instead of rewriting the host's bun.lock.
+  source-deps:
+    image: oven/bun:1
+    pull_policy: missing
+    container_name: ${STACK_ENV:-dev}-deps
+    restart: "no"
+    environment:
+      HUSKY: "0"
+    command:
+      - sh
+      - -ec
+      - |
+        for repo in ingestion-engine chat-mcp public-agent admin-dashboard; do
+          echo "→ bun install: $$repo"
+          cd /src/$$repo && bun install --frozen-lockfile
+        done
+    volumes:
+      - bun_cache:/root/.bun/install/cache
+      - ../services/ingestion-engine/repo:/src/ingestion-engine
+      - ie_nm:/src/ingestion-engine/node_modules
+      - ie_nm_subscription:/src/ingestion-engine/packages/subscription/node_modules
+      - ie_nm_queue:/src/ingestion-engine/packages/queue/node_modules
+      - ie_nm_llm:/src/ingestion-engine/packages/llm/node_modules
+      - ie_nm_logger:/src/ingestion-engine/packages/logger/node_modules
+      - ie_nm_ingest_estimator:/src/ingestion-engine/packages/ingest-estimator/node_modules
+      - ie_nm_mcp_server:/src/ingestion-engine/packages/mcp-server/node_modules
+      - ../services/chat-mcp/repo:/src/chat-mcp
+      - mcp_nm:/src/chat-mcp/node_modules
+      - mcp_nm_mcp_server:/src/chat-mcp/mcp-server/node_modules
+      - mcp_nm_server:/src/chat-mcp/server/node_modules
+      - mcp_nm_types:/src/chat-mcp/packages/types/node_modules
+      - mcp_nm_rag_core:/src/chat-mcp/packages/rag-core/node_modules
+      - mcp_nm_shared:/src/chat-mcp/packages/shared/node_modules
+      - mcp_nm_volt_core:/src/chat-mcp/packages/volt-core/node_modules
+      - ../services/public-agent:/src/public-agent
+      - pa_nm:/src/public-agent/node_modules
+      - ../frontends/admin-dashboard/repo:/src/admin-dashboard
+      - ui_nm:/src/admin-dashboard/node_modules
+    networks:
+      - stack-net
+
+  # ── Vite dev server on :80, where haproxy's admin_dashboard backend already points ──
+  # The built image's entrypoint.sh fills public/env-config.js from the env file (ENABLE_GOOGLE,
+  # PAY_PER_USER_MODE, …); Vite would serve the raw template, and runtimeConfig would then fall back
+  # to the VITE_* values in the developer's own .env.local. So public/ is a tmpfs copy rendered from
+  # this container's environment before Vite starts, and .env.local is masked — the page reads the
+  # env file and nothing else, exactly as the built image does. A public/ asset change needs a restart.
+  admin-dashboard:
+    <<: *source
+    working_dir: /src
+    command:
+      - sh
+      - -ec
+      - |
+        cp -R /public-src/. /src/public/
+        bun -e 'const f = "/src/public/env-config.js"; await Bun.write(f, (await Bun.file(f).text()).replace(/\$${(\w+)\}/g, (_, k) => process.env[k] ?? ""));'
+        exec bunx --bun vite --host 0.0.0.0 --port 80 --strictPort
+    volumes:
+      - ../frontends/admin-dashboard/repo:/src
+      - ../frontends/admin-dashboard/repo/public:/public-src:ro
+      - /dev/null:/src/.env.local:ro
+      - ui_nm:/src/node_modules
+    tmpfs:
+      - /src/public
+
+  # ── ingestion-engine: logs go to <workspace root>/logs (packages/logger), so each service mounts
+  # its own host log directory there ──
+  knowledge-server:
+    <<: *source
+    working_dir: /src/packages/knowledge-server
+    command: ["bun", "--no-env-file", "--watch", "src/index.ts"]
+    volumes:
+      - ../services/ingestion-engine/repo:/src
+      - ie_nm:/src/node_modules
+      - ie_nm_subscription:/src/packages/subscription/node_modules
+      - ie_nm_queue:/src/packages/queue/node_modules
+      - ie_nm_llm:/src/packages/llm/node_modules
+      - ie_nm_logger:/src/packages/logger/node_modules
+      - ie_nm_ingest_estimator:/src/packages/ingest-estimator/node_modules
+      - ie_nm_mcp_server:/src/packages/mcp-server/node_modules
+      - ./logs/knowledge-server:/src/logs
+
+  admin-server:
+    <<: *source
+    working_dir: /src/packages/admin-server
+    command: ["bun", "--no-env-file", "--watch", "src/index.ts"]
+    volumes:
+      - ../services/ingestion-engine/repo:/src
+      - ie_nm:/src/node_modules
+      - ie_nm_subscription:/src/packages/subscription/node_modules
+      - ie_nm_queue:/src/packages/queue/node_modules
+      - ie_nm_llm:/src/packages/llm/node_modules
+      - ie_nm_logger:/src/packages/logger/node_modules
+      - ie_nm_ingest_estimator:/src/packages/ingest-estimator/node_modules
+      - ie_nm_mcp_server:/src/packages/mcp-server/node_modules
+      - ./logs/admin-server:/src/logs
+
+  email-dispatcher:
+    <<: *source
+    working_dir: /src/packages/email-dispatcher
+    command: ["bun", "--no-env-file", "--watch", "src/index.ts"]
+    volumes:
+      - ../services/ingestion-engine/repo:/src
+      - ie_nm:/src/node_modules
+      - ie_nm_subscription:/src/packages/subscription/node_modules
+      - ie_nm_queue:/src/packages/queue/node_modules
+      - ie_nm_llm:/src/packages/llm/node_modules
+      - ie_nm_logger:/src/packages/logger/node_modules
+      - ie_nm_ingest_estimator:/src/packages/ingest-estimator/node_modules
+      - ie_nm_mcp_server:/src/packages/mcp-server/node_modules
+      - ./logs/email-dispatcher:/src/logs
+
+  # ── MCP: logs go to <cwd>/logs; hooks/ and skills/ are read from <cwd> as in the image ──
+  mcp-server-1:
+    <<: *source
+    read_only: false
+    working_dir: /src/mcp-server
+    command: ["bun", "--no-env-file", "--watch", "src/index.ts"]
+    volumes:
+      - ../services/chat-mcp/repo:/src
+      - mcp_nm:/src/node_modules
+      - mcp_nm_mcp_server:/src/mcp-server/node_modules
+      - mcp_nm_server:/src/server/node_modules
+      - mcp_nm_types:/src/packages/types/node_modules
+      - mcp_nm_rag_core:/src/packages/rag-core/node_modules
+      - mcp_nm_shared:/src/packages/shared/node_modules
+      - mcp_nm_volt_core:/src/packages/volt-core/node_modules
+      - ./logs/mcp/mcp-1:/src/mcp-server/logs
+
+  mcp-server-2:
+    <<: *source
+    read_only: false
+    working_dir: /src/mcp-server
+    command: ["bun", "--no-env-file", "--watch", "src/index.ts"]
+    volumes:
+      - ../services/chat-mcp/repo:/src
+      - mcp_nm:/src/node_modules
+      - mcp_nm_mcp_server:/src/mcp-server/node_modules
+      - mcp_nm_server:/src/server/node_modules
+      - mcp_nm_types:/src/packages/types/node_modules
+      - mcp_nm_rag_core:/src/packages/rag-core/node_modules
+      - mcp_nm_shared:/src/packages/shared/node_modules
+      - mcp_nm_volt_core:/src/packages/volt-core/node_modules
+      - ./logs/mcp/mcp-2:/src/mcp-server/logs
+
+  mcp-server-3:
+    <<: *source
+    read_only: false
+    working_dir: /src/mcp-server
+    command: ["bun", "--no-env-file", "--watch", "src/index.ts"]
+    volumes:
+      - ../services/chat-mcp/repo:/src
+      - mcp_nm:/src/node_modules
+      - mcp_nm_mcp_server:/src/mcp-server/node_modules
+      - mcp_nm_server:/src/server/node_modules
+      - mcp_nm_types:/src/packages/types/node_modules
+      - mcp_nm_rag_core:/src/packages/rag-core/node_modules
+      - mcp_nm_shared:/src/packages/shared/node_modules
+      - mcp_nm_volt_core:/src/packages/volt-core/node_modules
+      - ./logs/mcp/mcp-3:/src/mcp-server/logs
+
+  mcp-server-4:
+    <<: *source
+    read_only: false
+    working_dir: /src/mcp-server
+    command: ["bun", "--no-env-file", "--watch", "src/index.ts"]
+    volumes:
+      - ../services/chat-mcp/repo:/src
+      - mcp_nm:/src/node_modules
+      - mcp_nm_mcp_server:/src/mcp-server/node_modules
+      - mcp_nm_server:/src/server/node_modules
+      - mcp_nm_types:/src/packages/types/node_modules
+      - mcp_nm_rag_core:/src/packages/rag-core/node_modules
+      - mcp_nm_shared:/src/packages/shared/node_modules
+      - mcp_nm_volt_core:/src/packages/volt-core/node_modules
+      - ./logs/mcp/mcp-4:/src/mcp-server/logs
+
+  public-agent-1:
+    <<: *source
+    working_dir: /src
+    command: ["bun", "--no-env-file", "--watch", "src/index.ts"]
+    volumes:
+      - ../services/public-agent:/src
+      - pa_nm:/src/node_modules
+
+  public-agent-2:
+    <<: *source
+    working_dir: /src
+    command: ["bun", "--no-env-file", "--watch", "src/index.ts"]
+    volumes:
+      - ../services/public-agent:/src
+      - pa_nm:/src/node_modules
+
+volumes:
+  bun_cache:
+  ie_nm:
+  ie_nm_subscription:
+  ie_nm_queue:
+  ie_nm_llm:
+  ie_nm_logger:
+  ie_nm_ingest_estimator:
+  ie_nm_mcp_server:
+  mcp_nm:
+  mcp_nm_mcp_server:
+  mcp_nm_server:
+  mcp_nm_types:
+  mcp_nm_rag_core:
+  mcp_nm_shared:
+  mcp_nm_volt_core:
+  pa_nm:
+  ui_nm:

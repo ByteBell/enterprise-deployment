@@ -6,8 +6,13 @@ each one reads its own env file:
 | Environment | Env file          | Template                  | Databases                           |
 | ----------- | ----------------- | ------------------------- | ----------------------------------- |
 | `local`     | `.localhost.env`  | `.env.localhost.example`  | MongoDB + Neo4j run here            |
-| `dev`       | `.env`            | `.env.example`            | run elsewhere (named in env file)   |
+| `dev`       | `.dev.env`        | `.env.example`            | run elsewhere (named in env file)   |
 | `prod`      | `.production.env` | `.env.production.example` | run elsewhere (named in env file)   |
+
+`dev` exists only inside the ByteBell monorepo: `docker-compose.dev.yml` runs every service from the
+monorepo's source and reloads it on save — `bun --watch` for the backends, the Vite dev server (HMR
+through haproxy) for the dashboard. No image is built or pulled for them. A `package.json` /
+`bun.lock` or `.dev.env` change needs `make up dev` again; everything else reloads on its own.
 
 `localhost` is accepted as another name for `local`. Leaving the environment off means `dev`, so a
 bare command never reaches production.
@@ -53,7 +58,7 @@ See [Which images run](#which-images-run-image_tag) for every value.
 
   This creates the `SEED_CLIENT_EMAIL` user with `SEED_CLIENT_PASSWORD` and makes it superadmin.
   Running it again is safe.
-- `./install.sh --env local|dev|prod` does the whole sequence in one command: preflight, pull,
+- `./install.sh --env local|prod` does the whole sequence in one command: preflight, pull,
   replace containers, wait until the stack serves, and seed the superadmin (local only).
 
 ## Stack Settings page (`local` and `dev`)
@@ -250,7 +255,7 @@ command line. It wins over the env file:
 | `make up local IMAGE_TAG=latest`      | downloads and runs the newest published release             |
 | `make up local IMAGE_TAG=5.4.2`       | downloads and runs that exact release                       |
 
-The same works for `dev`. `make down local` needs no tag.
+`make down local` needs no tag. `dev` ignores `IMAGE_TAG` for the services it runs from source.
 
 So one local environment serves both purposes: test your own build before a release with
 `IMAGE_TAG=local`, then check the published images after `make publish` with `IMAGE_TAG=latest`.
@@ -267,9 +272,9 @@ make build
 #    Produces <IMAGE_REGISTRY>/<IMAGE_REPO_PREFIX>/<IMAGE_REPO_NAME>:<service>-local
 #    for admin-dashboard, ingestion-engine, conversation-memory, mcp-server and public-agent.
 
-# 2. Here, with IMAGE_TAG=local in .localhost.env or .env
+# 2. Here, with IMAGE_TAG=local in .localhost.env
 cd enterprise-deployment
-make up local            # or: make up dev
+make up local
 ```
 
 When `IMAGE_TAG=local` and an image is missing, `make up` stops, lists the missing images and tells

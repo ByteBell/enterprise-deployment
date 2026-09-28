@@ -3,12 +3,12 @@
 # install.sh — the one command that brings this deployment up.
 #
 #     ./install.sh --env prod      the real host, on its own domain.  .production.env
-#     ./install.sh --env dev       a laptop or test box, on http://localhost, using
-#                                  databases you already run somewhere.  .env
-#     ./install.sh --env local     the same, except MongoDB and Neo4j run HERE as
-#                                  containers and one superadmin signs in by email and
-#                                  password — no database elsewhere, no OAuth app
-#                                  to register.  .localhost.env
+#     ./install.sh --env local     a laptop or test box, on http://localhost. MongoDB and
+#                                  Neo4j run HERE as containers and one superadmin signs
+#                                  in by email and password — no database elsewhere, no
+#                                  OAuth app to register.  .localhost.env
+#
+# `dev` is not installed: it runs the ByteBell monorepo's source (`make up dev` there).
 #
 # That is the only parameter. Everything else — logging in to the registry, which release
 # to pull, which containers exist, taking the old ones down, bringing the databases up
@@ -30,16 +30,14 @@ cd "$ROOT"
 # ── 0. The one parameter ─────────────────────────────────────────────────────
 usage() {
   cat >&2 <<EOF
-usage: $0 --env prod|dev|local
-         (production, development and localhost mean the same three)
+usage: $0 --env prod|local
+         (production and localhost mean the same two)
 
-  prod    the real host, on its own domain                      (.production.env)
-  dev     a laptop or test box, databases run elsewhere         (.env)
-  local   a laptop, MongoDB + Neo4j run here, email+password    (.localhost.env)
+  prod    the real host, on its own domain                              (.production.env)
+  local   a laptop or test box, MongoDB + Neo4j run here, email+password (.localhost.env)
 
 First run: copy the matching template and fill it in.
   prod   cp .env.production.example .production.env
-  dev    cp .env.example            .env
   local  cp .env.localhost.example  .localhost.env
 EOF
   exit 2
@@ -56,14 +54,12 @@ esac
 # than answering an unambiguous request with the usage text.
 case "$ENV_NAME" in
   production)  ENV_NAME=prod ;;
-  development) ENV_NAME=dev ;;
   localhost)   ENV_NAME=local ;;
 esac
 
-# ── Per-environment wiring — the only place the three differ ────────────────
+# ── Per-environment wiring — the only place the two differ ──────────────────
 case "$ENV_NAME" in
   prod)  ENV_FILE=".production.env"; TEMPLATE=".env.production.example"; PROFILE_ARGS=();                    LOCAL_DBS=no;  SEED=no ;;
-  dev)   ENV_FILE=".env";            TEMPLATE=".env.example";            PROFILE_ARGS=();                    LOCAL_DBS=no;  SEED=no ;;
   local) ENV_FILE=".localhost.env";  TEMPLATE=".env.localhost.example";  PROFILE_ARGS=(--profile localhost); LOCAL_DBS=yes; SEED=yes ;;
   *)     usage ;;
 esac
@@ -165,8 +161,8 @@ ok "$ENV_FILE complete; profiles llm=$(envget LLM_PROFILE) ingest=$(envget INGES
 origin="$(envget FRONTEND_BASE_URL)"
 case "$ENV_NAME-$origin" in
   prod-http://localhost*|prod-https://localhost*) die "prod, but FRONTEND_BASE_URL is $origin — that is a dev value in $ENV_FILE." ;;
-  dev-http://localhost|dev-http://localhost:*|local-http://localhost|local-http://localhost:*) ;;
-  dev-*|local-*) printf '   note: %s, but FRONTEND_BASE_URL is %s (not localhost) — intended?\n' "$ENV_NAME" "$origin" ;;
+  local-http://localhost|local-http://localhost:*) ;;
+  local-*) printf '   note: %s, but FRONTEND_BASE_URL is %s (not localhost) — intended?\n' "$ENV_NAME" "$origin" ;;
 esac
 
 # The stack listens on HTTP_HOST_PORT (80 unless the env file moves it). Another compose project
@@ -218,7 +214,7 @@ if [ "$IMAGE_TAG" = local ]; then export PULL_POLICY=never; else export PULL_POL
 export ENV_FILE
 # Names every container <environment>-<service> — see the header of docker-compose.yml.
 export STACK_ENV="$ENV_NAME"
-# local and dev also get the Stack Settings page (docker-compose.stack-settings.yml mounts the Docker
+# local also gets the Stack Settings page (docker-compose.stack-settings.yml mounts the Docker
 # socket into admin-server); prod never does. admin-server is told the file list and profiles, and
 # recreates containers with the same ones.
 if [ "$ENV_NAME" = prod ]; then

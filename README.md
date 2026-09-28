@@ -22,16 +22,113 @@ says it is up. Running it again is also how you upgrade.
 | | reads | what you get |
 | --- | --- | --- |
 | `./install.sh --env prod` | `.production.env` | the real host, on its own domain |
-| `./install.sh --env dev` | `.env` | a laptop or test box at `http://localhost`, using databases you already run somewhere |
-| `./install.sh --env local` | `.localhost.env` | the same, except MongoDB and Neo4j run **here** and one superadmin signs in by email and password — nothing to run elsewhere, no OAuth app to register |
+| `./install.sh --env local` | `.localhost.env` | a laptop or test box at `http://localhost:8081`; MongoDB and Neo4j run **here** and one superadmin signs in by email and password — nothing to run elsewhere, no OAuth app to register |
 
-`production`, `development` and `localhost` mean the same three, so whichever word you reach for
+`production` and `localhost` mean the same two, so whichever word you reach for
 works. Nothing is ever built: every service is an image pulled from the registry, told apart by
 tag. There is no default environment — you say which one, every time, so production is never what
 you get by forgetting.
 
 The `make` targets below still work and do the same jobs one at a time (`make logs`, `make ps`,
 `make down`). `install.sh` is the one that takes you from a filled-in env file to a serving stack.
+
+---
+
+## Quick start — Plumbline on your laptop, end to end
+
+From nothing to asking Plumbline questions in Claude Code. The rest of this README explains each
+step in depth; this is the short path.
+
+### What you need
+
+- **Docker Desktop** running, **git**, and **Node 18+**.
+- **A registry token from ByteBell** — a username and a read-only token. The images are private;
+  without it nothing downloads.
+- **A GitHub personal access token** that can read the repositories you want to index.
+- **An API key from an LLM provider** (for example OpenRouter or Baseten).
+
+### 1. Download
+
+```bash
+git clone https://github.com/ByteBell/enterprise-deployment.git plumbline
+cd plumbline
+```
+
+### 2. Configure
+
+```bash
+cp .env.localhost.example .localhost.env
+```
+
+Open `.localhost.env` and fill in these values. Leave everything else as it is.
+
+| Key | What to put |
+| --- | --- |
+| `REGISTRY_USERNAME`, `REGISTRY_TOKEN` | The registry token ByteBell gave you |
+| `COMPOSE_PROJECT_DIR` | The full path of this folder — run `pwd` to see it |
+| `JWT_SECRET` | The output of `openssl rand -hex 32`. Set it once and keep a copy |
+| `SEED_CLIENT_PASSWORD` | The password you will sign in with (the email is `admin@localhost`) |
+| `PERSONAL_ACCESS_TOKEN` | Your GitHub personal access token |
+
+Leave `IMAGE_TAG` blank: the newest published release is downloaded, and its version is printed.
+
+### 3. Start
+
+```bash
+./install.sh --env local
+```
+
+This checks your file, downloads the images, starts MongoDB, Neo4j and every service, waits until
+they answer, and creates your sign-in account. The first run takes a few minutes.
+
+### 4. Sign in
+
+Open **<http://localhost:8081>** and sign in as `admin@localhost` with the password you chose.
+
+### 5. Add your LLM keys
+
+In the sidebar, open **Stack Settings → LLM profiles** and enter your provider's API key. Until you
+do, indexing and questions fail: the stack starts with placeholder keys.
+
+### 6. Index a repository
+
+Open **Code repositories** and add a repository. It is read with the `PERSONAL_ACCESS_TOKEN` from
+step 2; a token pasted in that form is used instead, for that repository. Wait until it shows as
+processed — a large repository takes a while.
+
+### 7. Copy your MCP key
+
+Open **MCP Keys** and copy the key that starts with `mcp_`.
+
+### 8. Install the Plumbline commands
+
+```bash
+npm install -g github:ByteBell/plumbline-skills
+plumbline install --url http://localhost:8081 --key mcp_…
+```
+
+`plumbline install` checks the key first, then adds the commands to every coding agent it finds
+(Claude Code, OpenCode, Codex). **Restart Claude Code** afterwards.
+
+### 9. Use it in Claude Code
+
+Open Claude Code in any folder and type:
+
+| Command | What it does |
+| --- | --- |
+| `/plumbline-verify` | Reviews your last commit against every caller in every indexed repository |
+| `/plumbline-review-pr <PR URL>` | Reviews a pull request the same way, without switching your branch |
+| `/plumbline-blast <file or symbol>` | Shows what depends on this code and what breaks if it changes |
+| `/plumbline-resolve-issue <issue>` | Finds the affected files, writes failing tests, then the fix |
+
+`plumbline help` explains each one.
+
+### Stop, restart, upgrade
+
+```bash
+make down local            # stop everything; your data is kept
+./install.sh --env local   # start again, or upgrade to the newest release
+```
 
 ---
 
@@ -113,14 +210,17 @@ Any directory works; `COMPOSE_PROJECT_DIR` in your env file must be its absolute
 
 ## Step 3 — Configure
 
-There are three templates. They are the same document with different values — copy the one that
-matches where this is running:
+There are two templates for a deployment. They are the same document with different values — copy
+the one that matches where this is running:
 
 | Running on | Copy | To | Then |
 | --- | --- | --- | --- |
 | A real host, own domain | `.env.production.example` | `.production.env` | `make up prod` |
-| A laptop or test box, databases run elsewhere | `.env.example` | `.env` | `make up dev` |
-| A laptop, nothing run elsewhere | `.env.localhost.example` | `.localhost.env` | `make up local` |
+| A laptop or test box, nothing run elsewhere | `.env.localhost.example` | `.localhost.env` | `make up local` |
+
+A third, `.env.example` → `.dev.env`, is for `make up dev`, which exists only inside the ByteBell
+monorepo: every service runs the monorepo's source and reloads on save (`docker-compose.dev.yml`),
+against databases you already run somewhere.
 
 `localhost` is the self-contained one: it starts MongoDB and Neo4j as containers in this compose
 file (behind the `localhost` compose profile, so `dev` and `prod` never see them) and its template
@@ -246,7 +346,7 @@ The failure mode is an empty turn, not a shallow one.
 ./install.sh --env prod
 ```
 
-That is the whole thing. Say `dev` or `local` instead for a laptop. It runs, in order:
+That is the whole thing. Say `local` instead for a laptop or test box. It runs, in order:
 
 1. **Preflight** — Docker and the compose plugin, the env file's required values, no key defined
    twice, every LLM profile it names exists and carries what the services refuse to boot without,
@@ -369,8 +469,8 @@ out of git.
 
 ## Day to day
 
-Every target takes `dev`, `prod` or `local` (also spelled `localhost`) as its last word, and `dev` is what you get if you
-omit it:
+Every target takes `prod` or `local` (also spelled `localhost`) as its last word. Omitting it means
+`dev`, the ByteBell monorepo's source mode, so on a deployment always say which:
 
 ```bash
 make ps prod                       # what is running
@@ -406,8 +506,8 @@ sudo docker logs prod-public-agent-1 --since 10m
 sudo docker logs prod-mcp-3 --tail 500 2>&1 | grep -i error
 ```
 
-Container names are `<environment>-<service>` — `prod-` here, `dev-` and `local-` for the other two
-environments; MCP replicas are `prod-mcp-1` to `-4` and the public agents `prod-public-agent-1` and `-2`.
+Container names are `<environment>-<service>` — `prod-` here, `local-` on a laptop and `dev-` in the
+monorepo; MCP replicas are `prod-mcp-1` to `-4` and the public agents `prod-public-agent-1` and `-2`.
 
 **When chasing one review or question:** the four MCP replicas sit behind HAProxy with sticky
 sessions keyed on `mcp-session-id`, so every graph call of a single run lands on ONE replica.
@@ -511,7 +611,7 @@ ByteBell.
 
 **A container exits immediately, log names a variable**
 A required value is missing from your env file. That is the intended behaviour — a container that
-cannot serve should not report healthy. Run `make preflight prod` (or `dev`), which also reports a
+cannot serve should not report healthy. Run `make preflight prod` (or `local`), which also reports a
 key defined twice, where the later definition quietly overrides the one you are reading.
 
 **`make verify` shows a backend DOWN**
