@@ -298,7 +298,7 @@ say "waiting for the stack to serve"
 probe() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://localhost:$HTTP_PORT$1" 2>/dev/null || echo 000; }
 a=000; k=000
 for _ in $(seq 1 60); do
-  a=$(probe /api/admin/health); k=$(probe /api/knowledge/health)
+  a=$(probe /api/admin/health); k=$(probe /knowledge/health)
   [ "$a" = 200 ] && [ "$k" = 200 ] && break
   sleep 5
 done
@@ -328,7 +328,7 @@ cat <<EOF
 
   Dashboard      $origin/admin
   Admin API      $origin/api/admin/health
-  Knowledge API  $origin/api/knowledge/health
+  Knowledge API  $origin/knowledge/health
   HAProxy stats  http://localhost:$(v="$(envget HAPROXY_STATS_HOST_PORT)"; echo "${v:-8404}")/stats
 EOF
 if [ "$SEED" = yes ]; then

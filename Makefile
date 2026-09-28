@@ -379,7 +379,7 @@ endif
 	@echo ""
 	@echo "→ endpoints"
 	@printf '   admin API        '; curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 http://localhost/api/admin/health || echo unreachable
-	@printf '   knowledge API    '; curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 http://localhost/api/knowledge/health || echo unreachable
+	@printf '   knowledge API    '; curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 http://localhost/knowledge/health || echo unreachable
 	@printf '   public questions '; curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 -X POST http://localhost/api/v1/public/agent/repos/x/y/ask || echo unreachable
 	@echo ""
 	@echo "   A 4xx on the last line is CORRECT (the service rejected an empty question)."
