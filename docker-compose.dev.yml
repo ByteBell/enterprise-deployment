@@ -4,22 +4,25 @@
 # Layered on docker-compose.yml by the Makefile for `make up dev` only, and only inside the ByteBell
 # monorepo: the source is mounted from ../services and ../frontends, which a deployment does not have.
 #
-# No image is built. Each app service runs `oven/bun:1` over its repository bind-mounted at /src:
+# Nothing of ours is pulled. Each app service runs `oven/bun:1` over its repository bind-mounted at
+# /src — the working tree as it is on disk, committed or not:
 #   - backends:        `bun --watch <entry>` restarts the process when any file it imports changes
 #   - admin-dashboard: the Vite dev server, so the browser hot-swaps modules (HMR through haproxy)
+# conversation-memory is the one exception, built here from the same working tree (see below).
 #
 # node_modules are NOT the host's. The host trees hold macOS builds (rollup, swc, libsql, ladybug
 # .node files) that cannot load in Linux, so every node_modules directory — nested ones included — is
 # covered by a named volume, and `source-deps` fills those volumes with `bun install` before anything
-# starts. A dependency change (package.json / bun.lock) needs `make up dev` again to reinstall; an
-# env-file change needs the container recreated. Everything else reloads on its own.
+# starts.
+#
+# What a save does not reload — a dependency change (package.json / bun.lock), an env-file, llm/ or
+# compose change, admin-dashboard public/, conversation-memory's source — `dev-watch` applies within a
+# minute, recreating only what the change affects (dev-watch.sh). `make logs dev s=dev-watch`.
 #
 # `--no-env-file`: Bun otherwise auto-loads a .env from the working directory, and the service repos
 # carry their own local-key .env files. The containers read only what compose hands them, exactly
 # as the built images do.
 #
-# conversation-memory keeps its built image: it runs under Node against the native LadybugDB addon,
-# which the Bun image here does not provide.
 
 x-source: &source
   image: oven/bun:1
@@ -96,6 +99,41 @@ services:
       - ui_nm:/src/node_modules
     tmpfs:
       - /src/public
+
+  # ── conversation-memory: built from the working tree, never pulled ──
+  # It runs under Node against the native LadybugDB addon (Bun cannot dlopen its extensions), bundled
+  # at build time — so it cannot run from a mount like the others. `make up dev` builds it, and
+  # dev-watch rebuilds it when its package or any workspace package it depends on changes.
+  conversation-memory:
+    image: plumbline-dev/conversation-memory:source
+    pull_policy: never
+    build:
+      context: ../services/ingestion-engine
+      dockerfile: Dockerfile
+      target: conversation-memory
+
+  # ── dev-watch: applies, once a minute, the changes a save does not reload (dev-watch.sh) ──
+  # The monorepo is mounted at its HOST path, so compose run in here resolves every bind mount to
+  # the same host path as the Makefile's. The Docker socket makes it root-equivalent on the host —
+  # dev only, like the Stack Settings socket.
+  dev-watch:
+    image: docker:29-cli
+    pull_policy: missing
+    container_name: ${STACK_ENV:-dev}-watch
+    restart: unless-stopped
+    entrypoint: ["sh", "${COMPOSE_PROJECT_DIR}/dev-watch.sh"]
+    environment:
+      COMPOSE_PROJECT_DIR: ${COMPOSE_PROJECT_DIR}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME}
+      ENV_FILE: ${ENV_FILE}
+      COMPOSE_FILE: ${COMPOSE_FILE}
+      STACK_ENV: ${STACK_ENV}
+      IMAGE_TAG: ${IMAGE_TAG}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${COMPOSE_PROJECT_DIR}/..:${COMPOSE_PROJECT_DIR}/..
+    networks:
+      - stack-net
 
   # ── ingestion-engine: logs go to <workspace root>/logs (packages/logger), so each service mounts
   # its own host log directory there ──

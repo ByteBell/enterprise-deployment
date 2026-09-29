@@ -3,13 +3,15 @@
 # =============================================================================
 # Runs on client-owned infrastructure.
 #
-# This stack connects OUTBOUND to Neo4j at NEO4J_URI (the `neo4j` container on localhost).
+# This stack connects OUTBOUND to MongoDB and Neo4j at MONGODB_URI / NEO4J_URI, which every service
+# reads from .db.env — one file shared by every deployment on this machine (.env.db.example).
 #
 # Usage:
-#   make up
+#   make up dev | make up local | make up prod
 # =============================================================================
 
-name: bb-stack
+# The environment's own name (dev, local, prod). COMPOSE_PROJECT_NAME in the env file outranks it.
+name: ${STACK_ENV:-prod}
 
 # Containers are named <environment>-<service> (prod-admin, dev-knowledge-2, local-mcp-1): STACK_ENV
 # is the environment install.sh and the Makefile were run for, so two environments on one host never
@@ -47,12 +49,13 @@ services:
     networks:
       - stack-net
 
-  # ── MongoDB + Neo4j — the `localhost` deployment only ───────────────────────
-  # Behind the `localhost` compose profile: `make up localhost` starts them, and `dev` / `prod`
-  # never see them — those keep MONGODB_URI / NEO4J_URI pointed at databases you run elsewhere.
-  # The services reach both over the compose network by name (mongodb, neo4j). The host ports
-  # are LOOPBACK ONLY, for mongosh and the Neo4j browser during triage, and each can be moved in
-  # .localhost.env when its default is already taken on the machine.
+  # ── MongoDB + Neo4j — only when .db.env points at them ──────────────────────
+  # Behind the `localhost` compose profile, which the Makefile and install.sh turn on exactly when
+  # MONGODB_URI / NEO4J_URI in .db.env name these containers (hosts `mongodb` / `neo4j`) — for dev
+  # and local alike; prod refuses to. The container names are fixed, so only one environment's
+  # stack can own them at a time. The services reach both over the compose network by name. The
+  # host ports are LOOPBACK ONLY, for mongosh and the Neo4j browser during triage, and each can be
+  # moved in .db.env when its default is already taken on the machine.
   #
   # Both run with auth. MONGODB_URI carries the user and password: `make up local` / install.sh
   # create that user on first start (the localhost exception admits exactly one first user), and
@@ -110,6 +113,7 @@ services:
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
+      - .db.env
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
       - llm/fallback-${FALLBACK_PROFILE}.env
@@ -156,6 +160,7 @@ services:
     command: ["/app/bytebell-knowledge-server"]
     env_file:
       - ${ENV_FILE:-.dev.env}
+      - .db.env
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
       - llm/fallback-${FALLBACK_PROFILE}.env
@@ -185,6 +190,7 @@ services:
     command: ["/app/bytebell-admin-server"]
     env_file:
       - ${ENV_FILE:-.dev.env}
+      - .db.env
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
       - llm/fallback-${FALLBACK_PROFILE}.env
@@ -216,6 +222,7 @@ services:
     command: ["/app/bytebell-email-dispatcher"]
     env_file:
       - ${ENV_FILE:-.dev.env}
+      - .db.env
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
       - llm/fallback-${FALLBACK_PROFILE}.env
@@ -241,6 +248,7 @@ services:
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
+      - .db.env
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
       - llm/fallback-${FALLBACK_PROFILE}.env
@@ -267,6 +275,7 @@ services:
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
+      - .db.env
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
       - llm/fallback-${FALLBACK_PROFILE}.env
@@ -299,6 +308,7 @@ services:
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
+      - .db.env
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
       - llm/fallback-${FALLBACK_PROFILE}.env
@@ -331,6 +341,7 @@ services:
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
+      - .db.env
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
       - llm/fallback-${FALLBACK_PROFILE}.env
@@ -363,6 +374,7 @@ services:
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
+      - .db.env
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
       - llm/fallback-${FALLBACK_PROFILE}.env
@@ -415,6 +427,7 @@ services:
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
+      - .db.env
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
       - llm/fallback-${FALLBACK_PROFILE}.env
@@ -438,6 +451,7 @@ services:
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
+      - .db.env
       - llm/${LLM_PROFILE}.env
       - llm/ingest-${INGEST_PROFILE}.env
       - llm/fallback-${FALLBACK_PROFILE}.env

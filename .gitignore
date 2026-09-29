@@ -11,6 +11,7 @@
 !.env.example
 !.env.production.example
 !.env.localhost.example
+!.env.db.example
 
 # Created at runtime by the stack.
 logs/

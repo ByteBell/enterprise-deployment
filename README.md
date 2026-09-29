@@ -11,6 +11,9 @@ registry, and you need a read-only token from ByteBell to pull them.
 git clone https://github.com/ByteBell/enterprise-deployment.git plumbline
 cd plumbline
 
+# Which MongoDB and Neo4j — one file for every deployment on this machine
+cp .env.db.example .db.env                   # as shipped: the local containers; for prod, yours
+
 # A laptop or test box — MongoDB and Neo4j run here, files stay in ./temp, no S3
 cp .env.localhost.example .localhost.env     # fill it in — see the Quick start below
 ./install.sh --env local
@@ -64,8 +67,10 @@ cd plumbline
 
 ```bash
 cp .env.localhost.example .localhost.env
+cp .env.db.example .db.env
 ```
 
+`.db.env` already points at the MongoDB and Neo4j containers this stack starts — leave it as it is.
 Open `.localhost.env` and fill in these values. Leave everything else as it is.
 
 | Key | What to put |
@@ -215,6 +220,13 @@ Any directory works; `COMPOSE_PROJECT_DIR` in your env file must be its absolute
 
 ## Step 3 — Configure
 
+**The databases are one file, `.db.env`, read by every deployment on this machine** on top of its
+own env file: `cp .env.db.example .db.env`. It holds `MONGODB_URI`, `NEO4J_URI`, `NEO4J_PASSWORD`,
+the database names and the local containers' host ports — and no deployment env file may define any
+of them (preflight refuses a key defined in both). Pointing every environment at other databases is
+an edit to this one file. The MongoDB and Neo4j containers start exactly when it names them
+(hosts `mongodb` / `neo4j`); `prod` refuses to start while it does.
+
 There are two templates for a deployment. They are the same document with different values — copy
 the one that matches where this is running:
 
@@ -225,15 +237,15 @@ the one that matches where this is running:
 
 A third, `.env.example` → `.dev.env`, is for `make up dev`, which exists only inside the ByteBell
 monorepo: every service runs the monorepo's source and reloads on save (`docker-compose.dev.yml`),
-against databases you already run somewhere.
+and nothing of ours is pulled. What a save does not reload — a dependency, env-file or compose
+change — the `dev-watch` container applies within a minute.
 
-`localhost` is the self-contained one: it starts MongoDB and Neo4j as containers in this compose
-file (behind the `localhost` compose profile, so `dev` and `prod` never see them) and its template
-already points `MONGODB_URI` and `NEO4J_URI` at them. What is left to fill in is a Neo4j password,
-the registry credential, the secrets and the provider keys. No S3 bucket: files stay in `./temp`,
+`localhost` is the self-contained one: with `.db.env` as shipped, MongoDB and Neo4j run as
+containers in this compose file (behind the `localhost` compose profile). What is left to fill in
+is the registry credential, the secrets and the provider keys. No S3 bucket: files stay in `./temp`,
 and the MCP servers hand them to MCP clients as signed links. Both databases keep their data in
 Docker volumes (`mongo_data`, `neo4j_data`) and publish loopback-only ports for `mongosh` and the
-Neo4j browser; move a port in `.localhost.env` if the default is already taken on your machine.
+Neo4j browser; move a port in `.db.env` if the default is already taken on your machine.
 
 `localhost` also needs **no OAuth app**. Its template switches every social sign-in button off
 (`ENABLE_GITHUB_LOGIN`, `ENABLE_GITLAB`, `ENABLE_BITBUCKET`, `ENABLE_GOOGLE` all `false`, and

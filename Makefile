@@ -19,41 +19,58 @@ DOCKER ?= $(shell docker info >/dev/null 2>&1 && echo docker || echo sudo docker
 #     make up prod       → .production.env    the real host, on its own domain
 #     make up dev        → .dev.env           ByteBell monorepo only: every service runs the monorepo's
 #                                             source and reloads on save (docker-compose.dev.yml), on
-#                                             http://localhost, using databases you already run somewhere
-#     make up local      → .localhost.env     a laptop or test box on http://localhost, released images,
-#                                             with MongoDB and Neo4j started HERE as containers (the
-#                                             `localhost` compose profile). `localhost` is the same goal.
+#                                             http://localhost. Nothing of ours is pulled.
+#     make up local      → .localhost.env     a laptop or test box on http://localhost, released images.
+#                                             `localhost` is the same goal.
 #     make up            → .dev.env           same as dev; the default is never production
+#
+# All three read the databases from .db.env as well — see DB_ENV_FILE below.
 #
 # `dev`, `prod` and `localhost` are GOALS rather than variables, so they are read out of
 # MAKECMDGOALS and declared as do-nothing targets below.
 #
-# ONE COMPLETE FILE PER DEPLOYMENT, not a shared base with an overlay. Two files that both define
-# a key are how a stack ends up running settings nobody can see in the file they are reading: the
-# last definition silently wins, and the losing one looks perfectly correct sitting above it.
+# ONE FILE PER DEPLOYMENT, not a shared base with an overlay — .db.env is the one exception, and it
+# shares no key with them. Two files that both define a key are how a stack ends up running settings
+# nobody can see in the file they are reading: the last definition silently wins, and the losing one
+# looks perfectly correct sitting above it. preflight refuses a key defined twice across the two.
 BB_ENV        := $(if $(filter prod,$(MAKECMDGOALS)),prod,$(if $(filter localhost local,$(MAKECMDGOALS)),localhost,dev))
 ENV_FILE_dev   = .dev.env
 ENV_FILE_prod  = .production.env
 ENV_FILE_localhost = .localhost.env
-# The two database containers exist only under this compose profile, so only `localhost` sees
-# them — in `ps`, `logs`, `pull`, `up` and `down` alike. `dev` and `prod` never start a database.
-COMPOSE_PROFILE := $(if $(filter localhost,$(BB_ENV)),--profile localhost)
 ENV_FILE      := $(ENV_FILE_$(BB_ENV))
 export ENV_FILE
+# Which MongoDB and Neo4j: .db.env, ONE file every deployment on this machine reads on top of its
+# own — so dev, local and prod switch databases together, by editing one file (.env.db.example).
+DB_ENV_FILE   := .db.env
 # Names every container <environment>-<service> — see the header of docker-compose.yml.
 STACK_ENV     := $(if $(filter localhost,$(BB_ENV)),local,$(BB_ENV))
 export STACK_ENV
 # local and dev also get the Stack Settings page (docker-compose.stack-settings.yml mounts the Docker
-# socket into admin-server); prod never does. COMPOSE_PROFILES says the same as $(COMPOSE_PROFILE) —
-# exported too, because admin-server is told it and recreates containers under the same profiles.
+# socket into admin-server); prod never does.
 # dev adds docker-compose.dev.yml, which runs the monorepo's source in place of the images.
 COMPOSE_FILE     := docker-compose.yml$(if $(filter prod,$(BB_ENV)),,:docker-compose.stack-settings.yml)$(if $(filter dev,$(BB_ENV)),:docker-compose.dev.yml)
-COMPOSE_PROFILES := $(if $(filter localhost,$(BB_ENV)),localhost)
-export COMPOSE_FILE COMPOSE_PROFILES
+export COMPOSE_FILE
 
-# Read the selected file only to sanity-check it and to print what is running. Compose reads it
+# Read the selected files only to sanity-check them and to print what is running. Compose reads them
 # itself for ${VAR} substitution, which is why no target has to pass IMAGE_TAG along.
 -include $(ENV_FILE)
+-include $(DB_ENV_FILE)
+
+# The mongodb + neo4j containers run exactly when .db.env names them — hosts `mongodb` / `neo4j` —
+# whichever environment this is; they exist only under the `localhost` compose profile, so every
+# other case never sees them in `ps`, `logs`, `up` or `down`. prod refuses the combination in
+# preflight. COMPOSE_PROFILES says the same as $(COMPOSE_PROFILE) — exported too, because admin-server
+# and dev-watch are told it and recreate containers under the same profiles.
+LOCAL_DBS := $(if $(or $(findstring @mongodb:,$(MONGODB_URI)),$(findstring //mongodb:,$(MONGODB_URI)),$(findstring //neo4j:,$(NEO4J_URI))),yes)
+COMPOSE_PROFILE  := $(if $(LOCAL_DBS),--profile localhost)
+COMPOSE_PROFILES := $(if $(LOCAL_DBS),localhost)
+export COMPOSE_PROFILES
+
+# dev runs source, never an image of ours: nothing is looked up, logged in to or pulled, whatever
+# IMAGE_TAG the env file holds. The value only has to be non-empty — admin-server refuses a blank one.
+ifeq ($(BB_ENV),dev)
+  override IMAGE_TAG := source
+endif
 
 # ── IMAGE_TAG: the release to run, resolved when it is left blank ────────────
 #
@@ -125,11 +142,13 @@ DOCKER_ENV = $(if $(filter sudo,$(firstword $(DOCKER))),\
                sudo env IMAGE_TAG=$(IMAGE_TAG) PULL_POLICY=$(PULL_POLICY) ENV_FILE=$(ENV_FILE) STACK_ENV=$(STACK_ENV) COMPOSE_FILE=$(COMPOSE_FILE) COMPOSE_PROFILES=$(COMPOSE_PROFILES) $(PROFILE_ENV) $(wordlist 2,99,$(DOCKER)),\
                $(PROFILE_ENV) $(DOCKER))
 
+# .db.env is a second --env-file for the database keys; the compose file names it in every env_file:
+# list by its literal path, so it needs no variable of its own.
 # Both are needed and they are NOT the same thing. `--env-file` feeds ${VAR} substitution in
 # docker-compose.yml; the exported ENV_FILE is what the `env_file:` entries inside it expand to,
 # and those the flag does not touch. Set only one and the containers read one file while the
 # compose file was interpolated from another — the values disagree and nothing reports it.
-COMPOSE = $(DOCKER_ENV) compose --env-file $(ENV_FILE) $(COMPOSE_PROFILE)
+COMPOSE = $(DOCKER_ENV) compose --env-file $(ENV_FILE) --env-file $(DB_ENV_FILE) $(COMPOSE_PROFILE)
 
 # Refuse rather than fall back. Silently using .dev.env because .production.env is absent is how a
 # laptop's settings reach a production host.
@@ -139,6 +158,11 @@ define require_env
 		echo "    dev       → .dev.env          cp .env.example .dev.env"; \
 		echo "    prod      → .production.env   cp .env.production.example .production.env"; \
 		echo "    local     → .localhost.env    cp .env.localhost.example .localhost.env"; \
+		exit 1; \
+	}
+	@test -f $(DB_ENV_FILE) || { \
+		echo "✗ every deployment reads its databases from $(DB_ENV_FILE), which does not exist."; \
+		echo "    cp .env.db.example $(DB_ENV_FILE)"; \
 		exit 1; \
 	}
 endef
@@ -173,8 +197,11 @@ help:
 	@echo "  Every target takes the deployment as the last word:"
 	@echo "    make up prod        the real host, reading .production.env"
 	@echo "    make up dev         ByteBell monorepo only: the source, reloaded on save, reading .dev.env  (the default)"
-	@echo "    make up local       a laptop or test box, reading .localhost.env, with MongoDB + Neo4j run here"
-	@echo "                        (localhost is the same goal)"
+	@echo "    make up local       a laptop or test box, reading .localhost.env  (localhost is the same goal)"
+	@echo ""
+	@echo "  Databases — every deployment reads them from .db.env, one file for this machine:"
+	@echo "    cp .env.db.example .db.env && \$$EDITOR .db.env"
+	@echo "    MongoDB + Neo4j run here as containers exactly when .db.env names them (mongodb / neo4j)"
 	@echo ""
 	@echo "  First run — production:"
 	@echo "    cp .env.production.example .production.env && \$$EDITOR .production.env"
@@ -189,7 +216,8 @@ help:
 	@echo ""
 	@echo "  In the ByteBell monorepo — every service from source, reloaded on save:"
 	@echo "    cp .env.example .dev.env && \$$EDITOR .dev.env"
-	@echo "    make up dev           A package.json / bun.lock or .dev.env change needs 'make up dev' again"
+	@echo "    make up dev           dev-watch applies the rest every minute: a package.json / bun.lock,"
+	@echo "                          env-file, compose or public/ change    (make logs dev s=dev-watch)"
 	@echo ""
 	@echo "  In the ByteBell monorepo — images built from source instead of pulled:"
 	@echo "    set IMAGE_TAG=local in the env file, run 'make build' in the monorepo, then 'make up local'"
@@ -206,7 +234,7 @@ help:
 	@echo "  Upgrading:"
 	@echo "    edit IMAGE_TAG in the env file, then: make update prod"
 	@echo ""
-	@echo "  Current: $(BB_ENV) ($(ENV_FILE))  IMAGE_TAG=$(if $(strip $(IMAGE_TAG)),$(IMAGE_TAG)$(if $(LOCAL_BUILD), (built by make build — never pulled)),<unset — newest release is resolved on pull>)"
+	@echo "  Current: $(BB_ENV) ($(ENV_FILE) + $(DB_ENV_FILE))  local databases: $(or $(LOCAL_DBS),no)  IMAGE_TAG=$(if $(strip $(IMAGE_TAG)),$(IMAGE_TAG)$(if $(LOCAL_BUILD), (built by make build — never pulled)),<unset — newest release is resolved on pull>)"
 	@echo "           registry=$(IMAGE_REGISTRY)/$(IMAGE_REPO_PREFIX)/$(IMAGE_REPO_NAME)"
 
 # Fail here, with a sentence, rather than three layers down in a container log.
@@ -217,8 +245,9 @@ preflight:
 	@test "$(BB_ENV)" != dev -o -d ../services/ingestion-engine/repo -a -d ../frontends/admin-dashboard/repo || \
 	  { echo "✗ dev runs the ByteBell monorepo's source, and ../services is not here — use 'make up local'"; exit 1; }
 	$(call require_env)
-	@missing=""; for k in IMAGE_REGISTRY IMAGE_REPO_PREFIX IMAGE_REPO_NAME REGISTRY_USERNAME \
-	  REGISTRY_TOKEN COMPOSE_PROJECT_DIR MONGODB_URI NEO4J_URI NEO4J_PASSWORD JWT_SECRET \
+	@# dev pulls nothing, so it needs no registry.
+	@missing=""; for k in $(if $(filter dev,$(BB_ENV)),,IMAGE_REGISTRY IMAGE_REPO_PREFIX IMAGE_REPO_NAME REGISTRY_USERNAME \
+	  REGISTRY_TOKEN) COMPOSE_PROJECT_DIR JWT_SECRET \
 	  FILE_STORAGE_BACKEND FRONTEND_BASE_URL LLM_PROFILE \
 	  INGEST_PROFILE FALLBACK_PROFILE AGENT_PROFILE \
 	  $$(grep -qE "^[[:space:]]*FILE_STORAGE_BACKEND=s3[[:space:]]*$$" $(ENV_FILE) && echo S3_FILES_BUCKET); do \
@@ -226,9 +255,15 @@ preflight:
 	  [ -z "$$v" ] && missing="$$missing $$k"; \
 	done; \
 	if [ -n "$$missing" ]; then echo "✗ $(ENV_FILE) is missing values:"; for m in $$missing; do echo "    $$m"; done; exit 1; fi
-	@dupes=$$(grep -oE "^[[:space:]]*[A-Z0-9_]+=" $(ENV_FILE) | tr -d ' ' | sort | uniq -d | sed 's/=$$//'); \
+	@missing=""; for k in MONGODB_URI NEO4J_URI NEO4J_PASSWORD; do \
+	  v=$$(grep -E "^[[:space:]]*$$k=" $(DB_ENV_FILE) | tail -1 | cut -d= -f2-); \
+	  [ -z "$$v" ] && missing="$$missing $$k"; \
+	done; \
+	if [ -n "$$missing" ]; then echo "✗ $(DB_ENV_FILE) is missing values:"; for m in $$missing; do echo "    $$m"; done; exit 1; fi
+	@# Across both files: a database key left behind in the env file is the same silent override.
+	@dupes=$$(grep -hoE "^[[:space:]]*[A-Z0-9_]+=" $(ENV_FILE) $(DB_ENV_FILE) | tr -d ' ' | sort | uniq -d | sed 's/=$$//'); \
 	if [ -n "$$dupes" ]; then \
-	  echo "✗ $(ENV_FILE) defines these keys more than once:"; \
+	  echo "✗ these keys are defined more than once across $(ENV_FILE) and $(DB_ENV_FILE):"; \
 	  for d in $$dupes; do echo "    $$d"; done; \
 	  echo "  The LAST definition wins and the earlier one is invisible. Delete the duplicates."; \
 	  exit 1; \
@@ -277,12 +312,14 @@ preflight:
 	  dev-http://localhost|dev-http://localhost:*|localhost-http://localhost|localhost-http://localhost:*) ;; \
 	  dev-*|localhost-*) echo "  note: $(BB_ENV), but FRONTEND_BASE_URL is $$origin (not localhost) — intended?";; \
 	esac
+	@test "$(BB_ENV)-$(LOCAL_DBS)" != prod-yes || \
+	  { echo "✗ prod, but $(DB_ENV_FILE) points at the local mongodb / neo4j containers — production never runs them"; exit 1; }
 	@# Stack Settings recreates containers by running compose in COMPOSE_PROJECT_DIR, so on local and
 	@# dev it has to BE this directory.
 	@dir=$$(grep -E "^[[:space:]]*COMPOSE_PROJECT_DIR=" $(ENV_FILE) | tail -1 | cut -d= -f2-); \
 	if [ "$(BB_ENV)" != prod ] && [ "$$dir" != "$(CURDIR)" ]; then \
 	  echo "✗ $(ENV_FILE) sets COMPOSE_PROJECT_DIR=$$dir, but this directory is $(CURDIR) — set it to $(CURDIR)"; exit 1; fi
-	@echo "✓ docker, compose plugin and $(ENV_FILE) all present ($(BB_ENV))"
+	@echo "✓ docker, compose plugin, $(ENV_FILE) and $(DB_ENV_FILE) all present ($(BB_ENV))"
 
 # The token lands in the config of the user this runs as — see the DOCKER note above.
 login:
@@ -295,7 +332,12 @@ dirs:
 	@mkdir -p logs/admin-server logs/email-dispatcher logs/knowledge-server \
 	          logs/mcp/mcp-1 logs/mcp/mcp-2 logs/mcp/mcp-3 logs/mcp/mcp-4 temp
 
-ifeq ($(LOCAL_BUILD),)
+ifeq ($(BB_ENV),dev)
+# docker-compose.dev.yml runs every service of ours from source or builds it here; compose fetches
+# only the public images (bun, redis, haproxy, …) it is missing.
+pull: preflight
+	@echo "✓ dev runs the monorepo's source — nothing of ours is pulled"
+else ifeq ($(LOCAL_BUILD),)
 pull: preflight login
 	$(COMPOSE) pull
 else ifeq ($(BB_ENV),prod)
@@ -318,7 +360,10 @@ up: dirs pull
 # The services connect to Mongo and Neo4j at boot and exit when they cannot, then restart until
 # they can. Neo4j takes tens of seconds to accept a query, so bring the databases to HEALTHY
 # first rather than letting every service crash-loop through that window.
-ifeq ($(BB_ENV),localhost)
+ifneq ($(LOCAL_DBS),)
+	@# The container names are fixed, so another environment's stack may already own them.
+	@owner=$$($(DOCKER) inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' local-mongodb local-neo4j 2>/dev/null | grep -vx '$(COMPOSE_PROJECT_NAME)' | head -1); \
+	test -z "$$owner" || { echo "✗ $(DB_ENV_FILE) names the local mongodb / neo4j containers, and the '$$owner' stack runs them — 'make down' that one first"; exit 1; }
 	$(COMPOSE) up -d --wait mongodb neo4j
 	@# MongoDB runs with --auth. Its first user is created from MONGODB_URI; on every later start the
 	@# same credentials must authenticate. Idempotent either way.
@@ -329,9 +374,13 @@ ifeq ($(BB_ENV),localhost)
 	  *) echo "✗ MongoDB rejects the user and password in MONGODB_URI ($$r) — put back the password the database was created with"; exit 1;; \
 	esac
 endif
+ifeq ($(BB_ENV),dev)
+	@# conversation-memory is the one service built rather than mounted: it runs under Node.
+	$(COMPOSE) build conversation-memory
+endif
 	$(COMPOSE) up -d
 	@echo ""
-	@echo "Started $(BB_ENV) from $(ENV_FILE) at $(FRONTEND_BASE_URL)."
+	@echo "Started $(BB_ENV) from $(ENV_FILE) + $(DB_ENV_FILE) at $(FRONTEND_BASE_URL)."
 	@echo "Give it a minute, then: make verify $(BB_ENV)"
 
 down:
@@ -367,7 +416,7 @@ verify:
 	@echo "→ containers"
 	@$(COMPOSE) ps --format '   {{.Service}}\t{{.Status}}' 2>/dev/null || $(COMPOSE) ps
 	@echo ""
-ifeq ($(BB_ENV),localhost)
+ifneq ($(LOCAL_DBS),)
 	@echo "→ databases (run here under the localhost profile)"
 	@printf '   mongodb          '; $(COMPOSE) exec -T mongodb mongosh --quiet --eval "db.adminCommand('ping').ok" 2>/dev/null || echo unreachable
 	@printf '   neo4j            '; $(COMPOSE) exec -T neo4j cypher-shell -u neo4j -p '$(NEO4J_PASSWORD)' 'RETURN 1' >/dev/null 2>&1 && echo ok || echo unreachable
@@ -388,12 +437,13 @@ endif
 # The localhost stack signs in by email + password, with no OAuth app: create that account.
 # Three steps, each idempotent — seed the organisation and the SEED_CLIENT_* user (the seed
 # binary shipped in the ingestion-engine image, reading SEED_* from the env file the container
-# already has), then promote that user to superadmin in the mongodb container. localhost only:
-# on dev/prod the database is not ours to reach into, and the seed's org addresses are
-# written for this compose file.
+# already has), then promote that user to superadmin in the mongodb container. localhost only, and
+# only on the local containers: a database elsewhere is not ours to reach into, and the seed's org
+# addresses are written for this compose file.
 superadmin:
 	$(call require_env)
 	@test "$(BB_ENV)" = "localhost" || { echo "✗ superadmin is for the local deployment only (make superadmin local)"; exit 1; }
+	@test -n "$(LOCAL_DBS)" || { echo "✗ $(DB_ENV_FILE) points at databases elsewhere, not the local containers — superadmin seeds only those"; exit 1; }
 	@test -n "$(SEED_CLIENT_EMAIL)" -a -n "$(SEED_CLIENT_PASSWORD)" || { echo "✗ SEED_CLIENT_EMAIL and SEED_CLIENT_PASSWORD must be set in $(ENV_FILE)"; exit 1; }
 	@echo "→ seeding organisation '$(SEED_ORG_NAME)' and user $(SEED_CLIENT_EMAIL)"
 	$(COMPOSE) exec -T admin-server /app/bytebell-seed

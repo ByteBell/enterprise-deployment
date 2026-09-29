@@ -3,10 +3,13 @@
 # install.sh — the one command that brings this deployment up.
 #
 #     ./install.sh --env prod      the real host, on its own domain.  .production.env
-#     ./install.sh --env local     a laptop or test box, on http://localhost. MongoDB and
-#                                  Neo4j run HERE as containers and one superadmin signs
-#                                  in by email and password — no database elsewhere, no
-#                                  OAuth app to register.  .localhost.env
+#     ./install.sh --env local     a laptop or test box, on http://localhost, where one
+#                                  superadmin signs in by email and password — no OAuth
+#                                  app to register.  .localhost.env
+#
+# Both read the databases from .db.env as well — one file for every deployment on this
+# machine (cp .env.db.example .db.env). MongoDB and Neo4j run HERE as containers exactly
+# when .db.env names them (hosts mongodb / neo4j); prod refuses that.
 #
 # `dev` is not installed: it runs the ByteBell monorepo's source (`make up dev` there).
 #
@@ -34,11 +37,12 @@ usage: $0 --env prod|local
          (production and localhost mean the same two)
 
   prod    the real host, on its own domain                              (.production.env)
-  local   a laptop or test box, MongoDB + Neo4j run here, email+password (.localhost.env)
+  local   a laptop or test box, email+password                          (.localhost.env)
 
-First run: copy the matching template and fill it in.
+First run: copy the matching template, and the databases one, and fill them in.
   prod   cp .env.production.example .production.env
   local  cp .env.localhost.example  .localhost.env
+  both   cp .env.db.example         .db.env
 EOF
   exit 2
 }
@@ -59,16 +63,17 @@ esac
 
 # ── Per-environment wiring — the only place the two differ ──────────────────
 case "$ENV_NAME" in
-  prod)  ENV_FILE=".production.env"; TEMPLATE=".env.production.example"; PROFILE_ARGS=();                    LOCAL_DBS=no;  SEED=no ;;
-  local) ENV_FILE=".localhost.env";  TEMPLATE=".env.localhost.example";  PROFILE_ARGS=(--profile localhost); LOCAL_DBS=yes; SEED=yes ;;
+  prod)  ENV_FILE=".production.env"; TEMPLATE=".env.production.example" ;;
+  local) ENV_FILE=".localhost.env";  TEMPLATE=".env.localhost.example" ;;
   *)     usage ;;
 esac
+DB_ENV_FILE=".db.env"
 
 say() { printf '\n\033[1m→ %s\033[0m\n' "$*"; }
 ok()  { printf '   ✓ %s\n' "$*"; }
 die() { printf '\n✗ %s\n' "$*" >&2; exit 1; }
-# Last definition wins, exactly as compose reads the file.
-envget() { grep -E "^[[:space:]]*$1=" "$ROOT/$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'"; }
+# Last definition wins, exactly as compose reads the files — and preflight refuses any key the two share.
+envget() { grep -hE "^[[:space:]]*$1=" "$ROOT/$ENV_FILE" "$ROOT/$DB_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'"; }
 
 # ── 1. Preflight — fail here with a sentence, not three layers down ─────────
 say "preflight ($ENV_NAME)"
@@ -92,6 +97,18 @@ ok "docker + compose${DOCKER[1]:+ (as root)}"
 [ -f "$ROOT/$ENV_FILE" ] || die "$ENV_NAME needs $ENV_FILE, which does not exist.
     cp $TEMPLATE $ENV_FILE
   then fill it in — see README, Step 3."
+[ -f "$ROOT/$DB_ENV_FILE" ] || die "every deployment reads its databases from $DB_ENV_FILE, which does not exist.
+    cp .env.db.example $DB_ENV_FILE
+  then point it at your MongoDB and Neo4j — or leave it on the local containers, for local."
+
+# The local mongodb / neo4j containers run exactly when .db.env names them; the seeded superadmin
+# is promoted inside that mongodb, so it needs them too.
+LOCAL_DBS=no
+case "$(envget MONGODB_URI) $(envget NEO4J_URI)" in *@mongodb:*|*//mongodb:*|*//neo4j:*) LOCAL_DBS=yes ;; esac
+[ "$ENV_NAME-$LOCAL_DBS" != prod-yes ] || die "prod, but $DB_ENV_FILE points at the local mongodb / neo4j containers — production never runs them."
+PROFILE_ARGS=(); SEED=no
+if [ "$LOCAL_DBS" = yes ]; then PROFILE_ARGS=(--profile localhost); fi
+if [ "$ENV_NAME-$LOCAL_DBS" = local-yes ]; then SEED=yes; fi
 
 required=(IMAGE_REGISTRY IMAGE_REPO_PREFIX IMAGE_REPO_NAME REGISTRY_USERNAME REGISTRY_TOKEN
           COMPOSE_PROJECT_DIR MONGODB_URI NEO4J_URI NEO4J_PASSWORD JWT_SECRET
@@ -105,11 +122,11 @@ case "$(envget FILE_STORAGE_BACKEND)" in
 esac
 missing=""
 for k in "${required[@]}"; do [ -n "$(envget "$k")" ] || missing="$missing $k"; done
-[ -z "$missing" ] || die "$ENV_FILE is missing values:$missing"
+[ -z "$missing" ] || die "$ENV_FILE / $DB_ENV_FILE is missing values:$missing"
 
-dupes=$(grep -oE "^[[:space:]]*[A-Z0-9_]+=" "$ROOT/$ENV_FILE" | tr -d ' ' | sort | uniq -d | sed 's/=$//' | tr '\n' ' ')
-[ -z "$dupes" ] || die "$ENV_FILE defines these keys more than once — the LAST one silently wins and the
-  earlier one still reads as though it were in force. Delete the duplicates:$dupes"
+dupes=$(grep -hoE "^[[:space:]]*[A-Z0-9_]+=" "$ROOT/$ENV_FILE" "$ROOT/$DB_ENV_FILE" | tr -d ' ' | sort | uniq -d | sed 's/=$//' | tr '\n' ' ')
+[ -z "$dupes" ] || die "these keys are defined more than once across $ENV_FILE and $DB_ENV_FILE — the LAST one
+  silently wins and the earlier one still reads as though it were in force. Delete the duplicates:$dupes"
 
 # Every profile template becomes a real profile file the first time, holding the templates'
 # `replace-me-in-stack-settings` keys: the stack boots on them and the real keys are entered on
@@ -221,11 +238,11 @@ if [ "$ENV_NAME" = prod ]; then
   export COMPOSE_FILE=docker-compose.yml COMPOSE_PROFILES=
 else
   export COMPOSE_FILE=docker-compose.yml:docker-compose.stack-settings.yml
-  if [ "$ENV_NAME" = local ]; then export COMPOSE_PROFILES=localhost; else export COMPOSE_PROFILES=; fi
+  if [ "$LOCAL_DBS" = yes ]; then export COMPOSE_PROFILES=localhost; else export COMPOSE_PROFILES=; fi
   # Stack Settings recreates containers by running compose in COMPOSE_PROJECT_DIR.
   [ "$(envget COMPOSE_PROJECT_DIR)" = "$ROOT" ] || die "$ENV_FILE sets COMPOSE_PROJECT_DIR=$(envget COMPOSE_PROJECT_DIR), but this directory is $ROOT — set it to $ROOT"
 fi
-compose() { "${DOCKER[@]}" compose --env-file "$ENV_FILE" ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} "$@"; }
+compose() { "${DOCKER[@]}" compose --env-file "$ENV_FILE" --env-file "$DB_ENV_FILE" ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} "$@"; }
 
 # mongosh inside the local mongodb container, with MONGODB_URI's credentials parsed in JS (so a
 # password with URL-escaped characters is decoded exactly as the driver decodes it). Connects to
@@ -269,6 +286,9 @@ mkdir -p logs/admin-server logs/email-dispatcher logs/knowledge-server \
          logs/mcp/mcp-1 logs/mcp/mcp-2 logs/mcp/mcp-3 logs/mcp/mcp-4 temp
 
 if [ "$LOCAL_DBS" = yes ]; then
+  # The container names are fixed, so another environment's stack may already own them.
+  owner=$("${DOCKER[@]}" inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' local-mongodb local-neo4j 2>/dev/null | grep -vx "$PROJECT_NAME" | head -1 || true)
+  [ -z "$owner" ] || die "$DB_ENV_FILE names the local mongodb / neo4j containers, and the '$owner' stack runs them — take that one down first."
   # The services exit when they cannot reach Mongo or Neo4j and restart until they can, and
   # Neo4j takes tens of seconds to accept a query. Bring both to HEALTHY first rather than
   # letting every service crash-loop through that window.
@@ -335,6 +355,10 @@ if [ "$SEED" = yes ]; then
   cat <<EOF
   Sign in        $origin/auth/login  as $(envget SEED_CLIENT_EMAIL)
                  the password is SEED_CLIENT_PASSWORD in $ENV_FILE
+EOF
+fi
+if [ "$LOCAL_DBS" = yes ]; then
+  cat <<EOF
   MongoDB        mongodb://127.0.0.1:$(envget MONGODB_HOST_PORT)
   Neo4j browser  http://127.0.0.1:$(envget NEO4J_HTTP_HOST_PORT)
 EOF
