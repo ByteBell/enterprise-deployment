@@ -4,7 +4,7 @@
 # Layered on docker-compose.yml by the Makefile for `make up dev` only, and only inside the ByteBell
 # monorepo: the source is mounted from ../services and ../frontends, which a deployment does not have.
 #
-# Nothing of ours is pulled. Each app service runs `oven/bun:1` over its repository bind-mounted at
+# Nothing of ours is pulled. Each app service runs `oven/bun:1` (+ git) over its repository bind-mounted at
 # /src — the working tree as it is on disk, committed or not:
 #   - backends:        `bun --watch <entry>` restarts the process when any file it imports changes
 #   - admin-dashboard: the Vite dev server, so the browser hot-swaps modules (HMR through haproxy)
@@ -24,9 +24,15 @@
 # as the built images do.
 #
 
+# oven/bun:1 plus git: the GitHub ingest shells out to `git clone`, which the stock Bun image lacks
+# (the built ingestion-engine image adds it too). Built once by `make up dev`; one tag for every service.
 x-source: &source
-  image: oven/bun:1
+  image: bytebell-dev-source:bun1
   pull_policy: missing
+  build:
+    dockerfile_inline: |
+      FROM oven/bun:1
+      RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
   depends_on:
     source-deps:
       condition: service_completed_successfully
