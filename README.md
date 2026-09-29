@@ -344,7 +344,7 @@ AGENT_LLM_BASE_URL=https://inference.baseten.co/v1
 AGENT_LLM_API_KEY=
 AGENT_MODEL=deepseek-ai/DeepSeek-V4-Pro
 AGENT_REASONING_EFFORT=medium
-AGENT_MAX_COMPLETION_TOKENS=8096
+AGENT_MAX_COMPLETION_TOKENS=24000
 ```
 
 All four are **required** — `public-agent` refuses to start if any is unset, rather than guessing.
