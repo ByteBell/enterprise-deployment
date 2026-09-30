@@ -409,6 +409,10 @@ update: pull
 # Everything below dials localhost ON PURPOSE, in production too: you run this ON the host, and
 # port 80 there is HAProxy itself. Going via FRONTEND_BASE_URL would drag DNS, TLS and whatever
 # sits in front into a check meant to answer one question — is this stack serving?
+# The ports are the ones compose publishes HAProxy on: HTTP_HOST_PORT / HAPROXY_STATS_HOST_PORT
+# (8081 / 8405 in dev and local, so they run beside a prod-shaped stack), 80 / 8404 when unset.
+VERIFY_URL   = http://localhost:$(or $(HTTP_HOST_PORT),80)
+VERIFY_STATS = http://localhost:$(or $(HAPROXY_STATS_HOST_PORT),8404)
 verify:
 	$(call require_env)
 	@echo "→ $(BB_ENV) ($(ENV_FILE)), serving as $(FRONTEND_BASE_URL)"
@@ -423,13 +427,13 @@ ifneq ($(LOCAL_DBS),)
 	@echo ""
 endif
 	@echo "→ HAProxy backends (all should be UP)"
-	@curl -s --max-time 5 'http://localhost:8404/stats;csv' 2>/dev/null \
+	@curl -s --max-time 5 '$(VERIFY_STATS)/stats;csv' 2>/dev/null \
 	  | awk -F, '$$2=="BACKEND" {printf "   %-18s %s\n", $$1, $$18}' || echo "   stats page unreachable"
 	@echo ""
 	@echo "→ endpoints"
-	@printf '   admin API        '; curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 http://localhost/api/admin/health || echo unreachable
-	@printf '   knowledge API    '; curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 http://localhost/knowledge/health || echo unreachable
-	@printf '   public questions '; curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 -X POST http://localhost/api/v1/public/agent/repos/x/y/ask || echo unreachable
+	@printf '   admin API        '; curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 $(VERIFY_URL)/api/admin/health || echo unreachable
+	@printf '   knowledge API    '; curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 $(VERIFY_URL)/knowledge/health || echo unreachable
+	@printf '   public questions '; curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 -X POST $(VERIFY_URL)/api/v1/public/agent/repos/x/y/ask || echo unreachable
 	@echo ""
 	@echo "   A 4xx on the last line is CORRECT (the service rejected an empty question)."
 	@echo "   A 503 means HAProxy is up but public-agent is not — check: make logs s=public-agent-1"
