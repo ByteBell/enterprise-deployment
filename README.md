@@ -439,6 +439,8 @@ To point at a different deployment or use a new key, run `plumbline install` aga
 `--url` / `--key` and restart the agent. It replaces the `plumbline` entry and checks the new pair
 first, so a wrong one leaves the old setup working. Moving between `--project` and a user install,
 `plumbline uninstall` the old one first: in Claude Code a project entry wins inside that repository.
+Keep one deployment connected at a time: a second MCP entry added by hand (say a dev stack next to
+production) serves the same tool names, and the agent may answer from either graph.
 
 To update, run both again — `install` copies the command files, it does not link them:
 
@@ -473,8 +475,9 @@ the developer's machine except the queries themselves. Token cost is the develop
 
 | Symptom | Cause |
 | --- | --- |
-| `answered HTTP 401 to that key` | Wrong or deactivated key — copy it again from **MCP keys**. |
-| `cannot reach …/mcp` | Wrong `--url`, or the stack is down (`./install.sh` status, `make verify`). |
+| `answered HTTP 401 to that key` | Wrong or deactivated key — copy it again from **MCP keys**. A key works only on the deployment whose dashboard issued it. |
+| `cannot reach …/mcp` | Wrong `--url`, or the stack is down (`./install.sh` status, `make verify`). The port is the one HAProxy is published on (`HTTP_HOST_PORT` in the env file, 80 when unset). |
+| `/mcp` answers 503 | The stack was just started and the MCP replicas are not healthy yet. Wait until `make verify` shows every HAProxy backend UP, then reconnect the server in the agent. |
 | "This repository is not indexed" | Add the repository in the dashboard and let it finish indexing. |
 | The commands do not appear | Restart the agent. With `--project`, run the agent from inside that directory. |
 | A result says the index is N commits behind | Normal — the repository was indexed at an older commit. Re-index for fresh dependents. |
