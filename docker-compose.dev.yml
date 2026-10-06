@@ -45,7 +45,7 @@ services:
   source-deps:
     image: oven/bun:1
     pull_policy: missing
-    container_name: ${STACK_ENV:-dev}-deps
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev}-deps
     restart: "no"
     environment:
       HUSKY: "0"
@@ -125,7 +125,7 @@ services:
   dev-watch:
     image: docker:29-cli
     pull_policy: missing
-    container_name: ${STACK_ENV:-dev}-watch
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev}-watch
     restart: unless-stopped
     entrypoint: ["sh", "${COMPOSE_PROJECT_DIR}/dev-watch.sh"]
     environment:

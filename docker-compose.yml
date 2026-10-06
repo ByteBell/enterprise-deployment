@@ -11,11 +11,12 @@
 # =============================================================================
 
 # The environment's own name (dev, local, prod). COMPOSE_PROJECT_NAME in the env file outranks it.
-name: ${STACK_ENV:-prod}
+name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}
 
 # Containers are named <environment>-<service> (prod-admin, dev-knowledge-2, local-mcp-1): STACK_ENV
 # is the environment install.sh and the Makefile were run for, so two environments on one host never
-# collide. It is NOT COMPOSE_PROJECT_NAME — that names the VOLUMES, and a server upgraded from an
+# collide. It has no default: a bare `docker compose` without it would guess one environment's names
+# for another's containers and network, so it refuses instead. It is NOT COMPOSE_PROJECT_NAME — that names the VOLUMES, and a server upgraded from an
 # older package keeps its old project name to reattach its data. The local-only databases are
 # always local-mongodb / local-neo4j.
 
@@ -29,7 +30,7 @@ services:
   # ── Redis (BullMQ queues + session cache) ───────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: ${STACK_ENV:-prod}-redis
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-redis
     restart: unless-stopped
     ports:
       # LOOPBACK ONLY. Redis runs with no password and holds job payloads (git tokens, decrypted
@@ -109,7 +110,7 @@ services:
   admin-dashboard:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:admin-dashboard-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: ${STACK_ENV:-prod}-admin-ui
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-admin-ui
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
@@ -129,7 +130,7 @@ services:
   # ── HAProxy (API routing + load balancing across MCP replicas) ──────────────
   haproxy:
     image: haproxy:2.9-alpine
-    container_name: ${STACK_ENV:-prod}-haproxy
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-haproxy
     restart: unless-stopped
     ports:
       - "${HTTP_HOST_PORT:-80}:80"
@@ -155,7 +156,7 @@ services:
   knowledge-server:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:ingestion-engine-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: ${STACK_ENV:-prod}-knowledge
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-knowledge
     restart: unless-stopped
     command: ["/app/bytebell-knowledge-server"]
     env_file:
@@ -185,7 +186,7 @@ services:
   admin-server:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:ingestion-engine-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: ${STACK_ENV:-prod}-admin
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-admin
     restart: unless-stopped
     command: ["/app/bytebell-admin-server"]
     env_file:
@@ -217,7 +218,7 @@ services:
   email-dispatcher:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:ingestion-engine-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: ${STACK_ENV:-prod}-email-dispatcher
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-email-dispatcher
     restart: unless-stopped
     command: ["/app/bytebell-email-dispatcher"]
     env_file:
@@ -244,7 +245,7 @@ services:
   conversation-memory:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:conversation-memory-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: ${STACK_ENV:-prod}-conversation-memory
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-conversation-memory
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
@@ -271,7 +272,7 @@ services:
   mcp-server-1:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:mcp-server-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: ${STACK_ENV:-prod}-mcp-1
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-mcp-1
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
@@ -304,7 +305,7 @@ services:
   mcp-server-2:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:mcp-server-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: ${STACK_ENV:-prod}-mcp-2
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-mcp-2
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
@@ -337,7 +338,7 @@ services:
   mcp-server-3:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:mcp-server-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: ${STACK_ENV:-prod}-mcp-3
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-mcp-3
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
@@ -370,7 +371,7 @@ services:
   mcp-server-4:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:mcp-server-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: ${STACK_ENV:-prod}-mcp-4
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-mcp-4
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
@@ -423,7 +424,7 @@ services:
   public-agent-1:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:public-agent-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: ${STACK_ENV:-prod}-public-agent-1
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-public-agent-1
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
@@ -447,7 +448,7 @@ services:
   public-agent-2:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:public-agent-${IMAGE_TAG:-latest}
     <<: *registry-image
-    container_name: ${STACK_ENV:-prod}-public-agent-2
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-public-agent-2
     restart: unless-stopped
     env_file:
       - ${ENV_FILE:-.dev.env}
@@ -471,7 +472,7 @@ services:
   # ── Log Cleaner (prune logs older than 7 days) ─────────────────────────────
   log-cleaner:
     image: alpine:3.19
-    container_name: ${STACK_ENV:-prod}-log-cleaner
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-log-cleaner
     restart: unless-stopped
     volumes:
       - ./logs:/logs
@@ -517,4 +518,4 @@ volumes:
 # project created.
 networks:
   stack-net:
-    name: plumbline-${STACK_ENV:-prod}
+    name: plumbline-${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}
