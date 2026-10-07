@@ -8,7 +8,8 @@
 #
 # Every STACK_* value is how this stack was started, so the page's recreate starts containers the same
 # way: the same env file, profiles and compose files, the same <STACK_ENV>-<service> names, the same tag.
-# COMPOSE_PROJECT_DIR in the env file must be this directory — the recreate runs compose there.
+# The recreate runs compose in this directory's HOST path, which the page asks for on every save and
+# proves before writing anything (COMPOSE_PROJECT_DIR in the env file, if set, only pre-fills it).
 services:
   admin-server:
     volumes:

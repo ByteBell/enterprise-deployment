@@ -111,10 +111,11 @@ if [ "$LOCAL_DBS" = yes ]; then PROFILE_ARGS=(--profile localhost); fi
 if [ "$ENV_NAME-$LOCAL_DBS" = local-yes ]; then SEED=yes; fi
 
 required=(IMAGE_REGISTRY IMAGE_REPO_PREFIX IMAGE_REPO_NAME REGISTRY_USERNAME REGISTRY_TOKEN
-          COMPOSE_PROJECT_DIR MONGODB_URI NEO4J_URI NEO4J_PASSWORD JWT_SECRET
+          MONGODB_URI NEO4J_URI NEO4J_PASSWORD JWT_SECRET
           FILE_STORAGE_BACKEND FRONTEND_BASE_URL
           LLM_PROFILE INGEST_PROFILE FALLBACK_PROFILE AGENT_PROFILE)
 [ "$SEED" = yes ] && required+=(SEED_ORG_NAME SEED_CLIENT_EMAIL SEED_CLIENT_PASSWORD)
+[ "$ENV_NAME" = prod ] && required+=(COMPOSE_PROJECT_DIR)
 case "$(envget FILE_STORAGE_BACKEND)" in
   s3)    required+=(S3_FILES_BUCKET) ;;
   local|"") ;;
@@ -239,8 +240,6 @@ if [ "$ENV_NAME" = prod ]; then
 else
   export COMPOSE_FILE=docker-compose.yml:docker-compose.stack-settings.yml
   if [ "$LOCAL_DBS" = yes ]; then export COMPOSE_PROFILES=localhost; else export COMPOSE_PROFILES=; fi
-  # Stack Settings recreates containers by running compose in COMPOSE_PROJECT_DIR.
-  [ "$(envget COMPOSE_PROJECT_DIR)" = "$ROOT" ] || die "$ENV_FILE sets COMPOSE_PROJECT_DIR=$(envget COMPOSE_PROJECT_DIR), but this directory is $ROOT — set it to $ROOT"
 fi
 compose() { "${DOCKER[@]}" compose --env-file "$ENV_FILE" --env-file "$DB_ENV_FILE" ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} "$@"; }
 

@@ -24,7 +24,7 @@ DOCKER ?= $(shell docker info >/dev/null 2>&1 && echo docker || echo sudo docker
 #                                             `localhost` is the same goal.
 #     make up            → .dev.env           same as dev; the default is never production
 #
-# All three read the databases from .db.env as well — see DB_ENV_FILE below.
+# All three read the databases from .db.env as well — local from .db.local.env when it exists. See DB_ENV_FILE.
 #
 # `dev`, `prod` and `localhost` are GOALS rather than variables, so they are read out of
 # MAKECMDGOALS and declared as do-nothing targets below.
@@ -41,14 +41,17 @@ ENV_FILE      := $(ENV_FILE_$(BB_ENV))
 export ENV_FILE
 # Which MongoDB and Neo4j: .db.env, ONE file every deployment on this machine reads on top of its
 # own — so dev, local and prod switch databases together, by editing one file (.env.db.example).
-DB_ENV_FILE   := .db.env
+# Except: local reads .db.local.env when that file exists, so it can run on the local mongodb / neo4j
+# containers while dev stays on its databases (docker-compose.local-db.yml layers it onto every service).
+LOCAL_DB_ENV_FILE := $(if $(filter localhost,$(BB_ENV)),$(wildcard .db.local.env))
+DB_ENV_FILE   := $(or $(LOCAL_DB_ENV_FILE),.db.env)
 # Names every container <environment>-<service> — see the header of docker-compose.yml.
 STACK_ENV     := $(if $(filter localhost,$(BB_ENV)),local,$(BB_ENV))
 export STACK_ENV
 # local and dev also get the Stack Settings page (docker-compose.stack-settings.yml mounts the Docker
 # socket into admin-server); prod never does.
 # dev adds docker-compose.dev.yml, which runs the monorepo's source in place of the images.
-COMPOSE_FILE     := docker-compose.yml$(if $(filter prod,$(BB_ENV)),,:docker-compose.stack-settings.yml)$(if $(filter dev,$(BB_ENV)),:docker-compose.dev.yml)
+COMPOSE_FILE     := docker-compose.yml$(if $(filter prod,$(BB_ENV)),,:docker-compose.stack-settings.yml)$(if $(filter dev,$(BB_ENV)),:docker-compose.dev.yml)$(if $(LOCAL_DB_ENV_FILE),:docker-compose.local-db.yml)
 export COMPOSE_FILE
 
 # Read the selected files only to sanity-check them and to print what is running. Compose reads them
@@ -247,7 +250,7 @@ preflight:
 	$(call require_env)
 	@# dev pulls nothing, so it needs no registry.
 	@missing=""; for k in $(if $(filter dev,$(BB_ENV)),,IMAGE_REGISTRY IMAGE_REPO_PREFIX IMAGE_REPO_NAME REGISTRY_USERNAME \
-	  REGISTRY_TOKEN) COMPOSE_PROJECT_DIR JWT_SECRET \
+	  REGISTRY_TOKEN) $(if $(filter localhost,$(BB_ENV)),,COMPOSE_PROJECT_DIR) JWT_SECRET \
 	  FILE_STORAGE_BACKEND FRONTEND_BASE_URL LLM_PROFILE \
 	  INGEST_PROFILE FALLBACK_PROFILE AGENT_PROFILE \
 	  $$(grep -qE "^[[:space:]]*FILE_STORAGE_BACKEND=s3[[:space:]]*$$" $(ENV_FILE) && echo S3_FILES_BUCKET); do \
@@ -314,10 +317,10 @@ preflight:
 	esac
 	@test "$(BB_ENV)-$(LOCAL_DBS)" != prod-yes || \
 	  { echo "✗ prod, but $(DB_ENV_FILE) points at the local mongodb / neo4j containers — production never runs them"; exit 1; }
-	@# Stack Settings recreates containers by running compose in COMPOSE_PROJECT_DIR, so on local and
-	@# dev it has to BE this directory.
+	@# dev-watch runs from COMPOSE_PROJECT_DIR, so on dev it has to BE this directory. local needs none:
+	@# Stack Settings asks for the folder on every save and proves it before writing anything.
 	@dir=$$(grep -E "^[[:space:]]*COMPOSE_PROJECT_DIR=" $(ENV_FILE) | tail -1 | cut -d= -f2-); \
-	if [ "$(BB_ENV)" != prod ] && [ "$$dir" != "$(CURDIR)" ]; then \
+	if [ "$(BB_ENV)" = dev ] && [ "$$dir" != "$(CURDIR)" ]; then \
 	  echo "✗ $(ENV_FILE) sets COMPOSE_PROJECT_DIR=$$dir, but this directory is $(CURDIR) — set it to $(CURDIR)"; exit 1; fi
 	@echo "✓ docker, compose plugin, $(ENV_FILE) and $(DB_ENV_FILE) all present ($(BB_ENV))"
 

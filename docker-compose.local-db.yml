@@ -1,0 +1,26 @@
+# =============================================================================
+# `make up local` with its own databases — .db.local.env
+# =============================================================================
+# Layered on docker-compose.yml by the Makefile (COMPOSE_FILE) only when BB_ENV=localhost AND
+# .db.local.env exists. It APPENDS .db.local.env to every service that reads .db.env; a later
+# env_file wins, so local runs on the local mongodb / neo4j containers while dev and prod keep .db.env.
+#
+# An overlay rather than swapping the path, because Stack Settings recreates containers with the
+# same COMPOSE_FILE but always `--env-file .db.env`: an overlay survives that, a swapped path would
+# put a recreated local container back on dev's databases.
+x-local-db: &local-db
+  env_file:
+    - .db.local.env
+
+services:
+  admin-dashboard: *local-db
+  knowledge-server: *local-db
+  admin-server: *local-db
+  email-dispatcher: *local-db
+  conversation-memory: *local-db
+  mcp-server-1: *local-db
+  mcp-server-2: *local-db
+  mcp-server-3: *local-db
+  mcp-server-4: *local-db
+  public-agent-1: *local-db
+  public-agent-2: *local-db

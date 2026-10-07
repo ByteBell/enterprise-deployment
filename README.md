@@ -76,7 +76,6 @@ Open `.localhost.env` and fill in these values. Leave everything else as it is.
 | Key | What to put |
 | --- | --- |
 | `REGISTRY_USERNAME`, `REGISTRY_TOKEN` | The registry token ByteBell gave you |
-| `COMPOSE_PROJECT_DIR` | The full path of this folder — run `pwd` to see it |
 | `JWT_SECRET` | The output of `openssl rand -hex 32`. Set it once and keep a copy |
 | `SEED_CLIENT_PASSWORD` | The password you will sign in with (the email is `admin@localhost`) |
 | `PERSONAL_ACCESS_TOKEN` | Your GitHub personal access token |
@@ -216,7 +215,8 @@ git clone https://github.com/ByteBell/enterprise-deployment.git /opt/plumbline
 cd /opt/plumbline
 ```
 
-Any directory works; `COMPOSE_PROJECT_DIR` in your env file must be its absolute path.
+Any directory works. On a production host, `COMPOSE_PROJECT_DIR` in your env file must be its absolute path;
+locally the Stack Settings page asks for it when you save.
 
 ## Step 3 — Configure
 
