@@ -78,7 +78,7 @@ Open `.localhost.env` and fill in these values. Leave everything else as it is.
 | `REGISTRY_USERNAME`, `REGISTRY_TOKEN` | The registry token ByteBell gave you |
 | `JWT_SECRET` | The output of `openssl rand -hex 32`. Set it once and keep a copy |
 | `SEED_CLIENT_PASSWORD` | The password you will sign in with (the email is `admin@localhost`) |
-| `PERSONAL_ACCESS_TOKEN` | Your GitHub personal access token |
+| `GITHUB_TOKEN` | Your GitHub personal access token |
 
 Leave `IMAGE_TAG` blank: the newest published release is downloaded, and its version is printed.
 
@@ -102,7 +102,7 @@ do, indexing and questions fail: the stack starts with placeholder keys.
 
 ### 6. Index a repository
 
-Open **Code repositories** and add a repository. It is read with the `PERSONAL_ACCESS_TOKEN` from
+Open **Code repositories** and add a repository. It is read with the `GITHUB_TOKEN` from
 step 2; a token pasted in that form is used instead, for that repository. Wait until it shows as
 processed — a large repository takes a while.
 
@@ -257,7 +257,7 @@ or be handed the keys of one, to use the stack. Instead:
   Once the stack is up, `make superadmin local` seeds the organisation, creates that user and
   promotes it. It is idempotent — run it again after changing the values.
 - **Repositories** are read with personal access tokens. `ENABLE_TOKEN_ENV_FALLBACK=true` plus
-  `PERSONAL_ACCESS_TOKEN` (GitHub), `GITLAB_TOKEN` and `BITBUCKET_TOKEN` in the env file cover any
+  `GITHUB_TOKEN` (GitHub), `GITLAB_TOKEN` and `BITBUCKET_TOKEN` in the env file cover any
   repository whose organisation holds no token of its own; a token pasted when adding a repository
   in the dashboard is used ahead of them. Each developer puts in tokens they already have.
 

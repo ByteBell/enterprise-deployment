@@ -51,7 +51,8 @@ export STACK_ENV
 # local and dev also get the Stack Settings page (docker-compose.stack-settings.yml mounts the Docker
 # socket into admin-server); prod never does.
 # dev adds docker-compose.dev.yml, which runs the monorepo's source in place of the images.
-COMPOSE_FILE     := docker-compose.yml$(if $(filter prod,$(BB_ENV)),,:docker-compose.stack-settings.yml)$(if $(filter dev,$(BB_ENV)),:docker-compose.dev.yml)$(if $(LOCAL_DB_ENV_FILE),:docker-compose.local-db.yml)
+# local adds docker-compose.local-storage.yml, which mounts temp/ into public-agent for its local archive.
+COMPOSE_FILE     := docker-compose.yml$(if $(filter prod,$(BB_ENV)),,:docker-compose.stack-settings.yml)$(if $(filter dev,$(BB_ENV)),:docker-compose.dev.yml)$(if $(LOCAL_DB_ENV_FILE),:docker-compose.local-db.yml)$(if $(filter localhost,$(BB_ENV)),:docker-compose.local-storage.yml)
 export COMPOSE_FILE
 
 # Read the selected files only to sanity-check them and to print what is running. Compose reads them

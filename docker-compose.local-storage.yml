@@ -1,0 +1,16 @@
+# =============================================================================
+# `make up local` — public-agent on the temp/ mount
+# =============================================================================
+# Layered on docker-compose.yml by the Makefile (COMPOSE_FILE) only when BB_ENV=localhost, the stack that
+# runs FILE_STORAGE_BACKEND=local. There public-agent archives every finished review and question as
+# files in the folder PUBLIC_PR_REVIEWS_BUCKET names under KNOWLEDGE_BASE_PATH, and admin-server reads them
+# back through its own mount of the same temp/. dev and prod archive to the bucket and never load this file.
+x-temp-mount: &temp-mount
+  volumes:
+    - ${TEMP_DIR:-./temp}:/app/temp
+  environment:
+    KNOWLEDGE_BASE_PATH: /app/temp
+
+services:
+  public-agent-1: *temp-mount
+  public-agent-2: *temp-mount
