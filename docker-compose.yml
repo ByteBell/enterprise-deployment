@@ -285,6 +285,8 @@ services:
       - NODE_ENV=${NODE_ENV:-development}
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
       - MCP_ENV=${NODE_ENV:-development}
+      # The name MCP clients see. Typed on the make command line (`make up prod SERVER_NAME=…`), not kept in an env file.
+      - SERVER_NAME=${SERVER_NAME:-plumbline-knowledge}
       - PORT=3100
       - KNOWLEDGE_BASE_PATH=/app/temp
     volumes:
@@ -318,6 +320,8 @@ services:
       - NODE_ENV=${NODE_ENV:-development}
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
       - MCP_ENV=${NODE_ENV:-development}
+      # The name MCP clients see. Typed on the make command line (`make up prod SERVER_NAME=…`), not kept in an env file.
+      - SERVER_NAME=${SERVER_NAME:-plumbline-knowledge}
       - PORT=3100
       - KNOWLEDGE_BASE_PATH=/app/temp
     volumes:
@@ -351,6 +355,8 @@ services:
       - NODE_ENV=${NODE_ENV:-development}
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
       - MCP_ENV=${NODE_ENV:-development}
+      # The name MCP clients see. Typed on the make command line (`make up prod SERVER_NAME=…`), not kept in an env file.
+      - SERVER_NAME=${SERVER_NAME:-plumbline-knowledge}
       - PORT=3100
       - KNOWLEDGE_BASE_PATH=/app/temp
     volumes:
@@ -384,6 +390,8 @@ services:
       - NODE_ENV=${NODE_ENV:-development}
       # mcp is a compiled Bun binary that bakes NODE_ENV at build time; MCP_ENV is read at runtime (log format).
       - MCP_ENV=${NODE_ENV:-development}
+      # The name MCP clients see. Typed on the make command line (`make up prod SERVER_NAME=…`), not kept in an env file.
+      - SERVER_NAME=${SERVER_NAME:-plumbline-knowledge}
       - PORT=3100
       - KNOWLEDGE_BASE_PATH=/app/temp
     volumes:

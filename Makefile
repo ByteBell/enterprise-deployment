@@ -125,6 +125,12 @@ ifeq ($(strip $(IMAGE_TAG)),)
 endif
 export IMAGE_TAG
 
+# ── SERVER_NAME: the name the MCP server advertises to clients ──────────────
+# Typed per run on the command line — `make up prod SERVER_NAME=acme-knowledge` — never kept in an env
+# file. Unset, it is the product's own name.
+SERVER_NAME ?= plumbline-knowledge
+export SERVER_NAME
+
 # ── IMAGE_TAG=local: run what the monorepo's `make build` made on this machine ──
 #
 # `make build` in the ByteBell monorepo tags every image <service>-local under the same registry path
@@ -143,7 +149,7 @@ export PULL_POLICY
 # them for one invocation — a shell variable outranks --env-file in compose interpolation.
 PROFILE_ENV = $(if $(LLM),LLM_PROFILE=$(LLM)) $(if $(INGEST),INGEST_PROFILE=$(INGEST)) $(if $(FALLBACK),FALLBACK_PROFILE=$(FALLBACK))
 DOCKER_ENV = $(if $(filter sudo,$(firstword $(DOCKER))),\
-               sudo env IMAGE_TAG=$(IMAGE_TAG) PULL_POLICY=$(PULL_POLICY) ENV_FILE=$(ENV_FILE) STACK_ENV=$(STACK_ENV) COMPOSE_FILE=$(COMPOSE_FILE) COMPOSE_PROFILES=$(COMPOSE_PROFILES) $(PROFILE_ENV) $(wordlist 2,99,$(DOCKER)),\
+               sudo env IMAGE_TAG=$(IMAGE_TAG) SERVER_NAME=$(SERVER_NAME) PULL_POLICY=$(PULL_POLICY) ENV_FILE=$(ENV_FILE) STACK_ENV=$(STACK_ENV) COMPOSE_FILE=$(COMPOSE_FILE) COMPOSE_PROFILES=$(COMPOSE_PROFILES) $(PROFILE_ENV) $(wordlist 2,99,$(DOCKER)),\
                $(PROFILE_ENV) $(DOCKER))
 
 # .db.env is a second --env-file for the database keys; the compose file names it in every env_file:
@@ -227,6 +233,7 @@ help:
 	@echo "    set IMAGE_TAG=local in the env file, run 'make build' in the monorepo, then 'make up local'"
 	@echo "    make up local IMAGE_TAG=latest    Pull and run the newest release instead, env file untouched"
 	@echo "    make up local IMAGE_TAG=5.4.2     Pull and run that release"
+	@echo "    make up prod SERVER_NAME=acme-knowledge   The name MCP clients see (default: plumbline-knowledge)"
 	@echo "    make publish prod VERSION=x.y.z   Multi-arch build + push, via the monorepo's release"
 	@echo ""
 	@echo "  Day to day (add dev/prod to each):"
