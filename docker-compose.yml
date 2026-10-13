@@ -436,8 +436,6 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3200
-    depends_on:
-      - redis
     deploy:
       resources:
         limits:
@@ -460,8 +458,6 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3200
-    depends_on:
-      - redis
     deploy:
       resources:
         limits:
