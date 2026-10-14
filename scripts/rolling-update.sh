@@ -19,6 +19,9 @@
 # ROLL_FORCE=1 replaces every application container even when nothing changed — a rolling restart
 # (`make restart`). haproxy, redis and the databases are never forced: recreating them IS the gap.
 set -euo pipefail
+# Say where it stopped. Several steps send their output to /dev/null, so without this a failure ends
+# in a bare `make: Error 1` with nothing to read.
+trap 'echo "✗ rolling update stopped at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 : "${ROLL_COMPOSE:?run through make up / make update}"
 
@@ -83,11 +86,31 @@ needs_recreate() {
 }
 
 # ── 1. haproxy config ───────────────────────────────────────────────────────────────────────────────
-if compose ps --status running --services 2>/dev/null | grep -qx haproxy; then
-  compose exec -T haproxy haproxy -c -q -f /usr/local/etc/haproxy/haproxy.cfg
-  compose kill -s USR2 haproxy >/dev/null
-  echo "✓ haproxy config reloaded"
-  sleep 2
+# Every later step drives haproxy's runtime API, so haproxy must be running THIS haproxy.cfg first. A
+# reload (USR2) is enough when the container already sees the file on disk. It is not when haproxy's own
+# definition changed, or the container sees an older haproxy.cfg than the one here (a stack started
+# with the old single-file mount, then `git pull`) — then haproxy itself is recreated: a second or two
+# of refused connections, once.
+HAP_CFG=/usr/local/etc/haproxy/haproxy.cfg
+if [[ -n "$(compose ps -q --status running haproxy 2>/dev/null)" ]]; then
+  seen=$(compose exec -T haproxy cat "$HAP_CFG" 2>/dev/null | cksum || true)
+  if needs_recreate haproxy || [[ "$seen" != "$(cksum < haproxy/haproxy.cfg)" ]]; then
+    echo "→ haproxy: running an older config than haproxy/haproxy.cfg — recreating it"
+    compose up -d --no-deps --force-recreate haproxy
+  else
+    compose exec -T haproxy haproxy -c -q -f "$HAP_CFG"
+    compose kill -s USR2 haproxy >/dev/null
+    echo "✓ haproxy config reloaded"
+  fi
+  waited=0
+  until hap "show info" >/dev/null 2>&1; do
+    if ((waited >= UP_TIMEOUT)); then
+      echo "✗ haproxy's runtime API (stats socket in haproxy.cfg) is not answering"
+      exit 1
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
 fi
 
 # ── 2. start what is not running ────────────────────────────────────────────────────────────────────
@@ -98,7 +121,7 @@ REPLICAS="mcp-server-1 mcp-server-2 mcp-server-3 mcp-server-4 public-agent-1 pub
 
 # ── 3. single services ──────────────────────────────────────────────────────────────────────────────
 for svc in $(compose config --services); do
-  case " $SURGED $REPLICAS " in *" $svc "*) continue ;; esac
+  case " $SURGED $REPLICAS haproxy " in *" $svc "*) continue ;; esac
   if needs_recreate "$svc"; then
     echo "→ $svc: recreating"
     REPLACED+=("$svc")
