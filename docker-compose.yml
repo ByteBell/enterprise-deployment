@@ -153,11 +153,14 @@ services:
   # ── Knowledge Server (ingestion) — from the single ingestion-engine image ───
   # admin-server + knowledge-server both pull the SAME ECR image and differ only
   # by `command`.
-  knowledge-server:
+  knowledge-server: &knowledge-server
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:ingestion-engine-${IMAGE_TAG:-latest}
     <<: *registry-image
     container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-knowledge
     restart: unless-stopped
+    # On SIGTERM it hands its running jobs back to the queue for the replacement worker; give that time
+    # to finish rather than Docker's 10 s default.
+    stop_grace_period: 60s
     command: ["/app/bytebell-knowledge-server"]
     env_file:
       - ${ENV_FILE:-.dev.env}
@@ -183,7 +186,7 @@ services:
       - stack-net
 
   # ── Admin Server (API gateway) — same ingestion-engine image, admin entry ───
-  admin-server:
+  admin-server: &admin-server
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:ingestion-engine-${IMAGE_TAG:-latest}
     <<: *registry-image
     container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-admin
@@ -213,6 +216,28 @@ services:
         condition: service_healthy
     networks:
       - stack-net
+
+  # ── Update-time copies ─────────────────────────────────────────────────────
+  # knowledge-server and admin-server run as ONE copy each. During `make up` / `make update` the rolling
+  # script (scripts/rolling-update.sh) starts one of these on the new image, waits until haproxy reports
+  # it serving, replaces the original, then removes it — so an update has no gap. The `surge` profile
+  # keeps them out of every normal `up`; haproxy holds an empty slot for each (knowledge2, admin2).
+  knowledge-server-next:
+    <<: *knowledge-server
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-knowledge-next
+    profiles: ["surge"]
+    volumes:
+      - ./logs/knowledge-server-next:/app/logs
+      - ${TEMP_DIR:-./temp}:/app/temp
+
+  admin-server-next:
+    <<: *admin-server
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-admin-next
+    profiles: ["surge"]
+    volumes:
+      - ./logs/admin-server-next:/app/logs
+      - ./logs:/app/all-logs:ro
+      - ${TEMP_DIR:-./temp}:/app/temp
 
   # ── Email Dispatcher (SES) — same ingestion-engine image, email-dispatcher entry ──
   email-dispatcher:

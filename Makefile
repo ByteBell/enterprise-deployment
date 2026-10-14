@@ -389,13 +389,24 @@ ifeq ($(BB_ENV),dev)
 	@# conversation-memory is the one service built rather than mounted: it runs under Node.
 	$(COMPOSE) build conversation-memory
 endif
-	$(COMPOSE) up -d
+	$(ROLL)
 	@echo ""
 	@echo "Started $(BB_ENV) from $(ENV_FILE) + $(DB_ENV_FILE) at $(FRONTEND_BASE_URL)."
 	@echo "Give it a minute, then: make verify $(BB_ENV)"
 
+# How `up` and `update` bring containers to the env file's images. prod and local roll them
+# (scripts/rolling-update.sh): one container at a time, each serving before the next is touched,
+# knowledge-server and admin-server swapped through an update-time copy, running ingestions handed to
+# the next worker. dev runs the monorepo's source and dev-watch already recreates what changed.
+ifeq ($(BB_ENV),dev)
+ROLL = $(COMPOSE) up -d
+else
+ROLL = ROLL_COMPOSE='$(COMPOSE)' ./scripts/rolling-update.sh
+endif
+
+# `--profile surge` so an update-time copy an interrupted update left behind goes too.
 down:
-	$(COMPOSE) down
+	$(COMPOSE) --profile surge down
 
 restart:
 	$(COMPOSE) restart
@@ -408,10 +419,11 @@ ps:
 logs:
 	@$(COMPOSE) logs -f --tail=200 $(s)
 
-# Pull the tag now named in the env file and replace the running containers with it. Compose only recreates
-# services whose image actually changed, so this is also the no-op if you are already current.
+# Pull the tag now named in the env file and replace the running containers with it — one at a time, without
+# a gap (see ROLL). Only services whose image or config changed are touched, so this is also the no-op if
+# you are already current.
 update: pull
-	$(COMPOSE) up -d
+	$(ROLL)
 	@echo ""
 	@echo "Now on IMAGE_TAG=$(IMAGE_TAG). Confirm with: make verify"
 

@@ -26,7 +26,11 @@ cp .env.production.example .production.env   # fill it in — see Step 3
 **`./install.sh` is the whole deployment, and its one parameter is which one this is.** It checks
 the env file and the provider profiles, authenticates to the registry, works out which release to
 pull, replaces the running containers, and then waits until the stack actually *serves* before it
-says it is up. Running it again is also how you upgrade.
+says it is up. Running it again is also how you upgrade, and an upgrade has no gap: only what changed is
+replaced, one container at a time, each serving again before the next is touched. knowledge-server and
+admin-server run as one copy each, so the upgrade starts a temporary copy on the new version first and
+removes it at the end; an ingestion that is running is handed to the next worker rather than failed.
+The same happens on `make up` / `make update` (`scripts/rolling-update.sh`).
 
 | | reads | what you get |
 | --- | --- | --- |
