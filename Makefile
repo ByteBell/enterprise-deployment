@@ -394,28 +394,20 @@ endif
 	@echo "Started $(BB_ENV) from $(ENV_FILE) + $(DB_ENV_FILE) at $(FRONTEND_BASE_URL)."
 	@echo "Give it a minute, then: make verify $(BB_ENV)"
 
-# How `up` and `update` bring containers to the env file's images. prod and local roll them
-# (scripts/rolling-update.sh): one container at a time, each serving before the next is touched,
-# knowledge-server and admin-server swapped through an update-time copy, running ingestions handed to
-# the next worker. dev runs the monorepo's source and dev-watch already recreates what changed.
-ifeq ($(BB_ENV),dev)
-ROLL = $(COMPOSE) up -d
-else
+# How `up`, `update` and `restart` bring containers to the env file's images — in every environment, dev
+# included (scripts/rolling-update.sh): one container at a time, each serving before the next is touched,
+# knowledge-server and admin-server swapped through an update-time copy, running ingestions handed to the
+# next worker. `down` is the one full stop.
 ROLL = ROLL_COMPOSE='$(COMPOSE)' ./scripts/rolling-update.sh
-endif
 
 # `--profile surge` so an update-time copy an interrupted update left behind goes too.
 down:
 	$(COMPOSE) --profile surge down
 
-# prod and local: a rolling restart — every application container replaced one at a time, no gap (ROLL_FORCE).
-# dev: a plain restart.
+# A rolling restart in every environment — dev, local and prod: each application container replaced one at
+# a time, rejoining only once it serves, so nothing goes down (ROLL_FORCE; never haproxy, redis or the DBs).
 restart:
-ifeq ($(BB_ENV),dev)
-	$(COMPOSE) restart
-else
 	ROLL_FORCE=1 $(ROLL)
-endif
 
 ps:
 	@$(COMPOSE) ps
