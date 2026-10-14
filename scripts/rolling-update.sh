@@ -150,11 +150,24 @@ ready() {
 # Wait until a drained server's own health check passes. The check result is what counts, not the
 # status alone: haproxy treats a server whose address it has only just resolved as up until its first
 # check says otherwise, so a container that is still starting can read DRAIN before anything listens.
+# The status may read UP rather than DRAIN: when the name resolves again after the container was
+# recreated, haproxy sets the server "administratively READY thanks to valid DNS answer", which drops
+# the drain. A server that is UP with a passing check is serving — exactly what is being waited for.
 wait_healthy_drained() {
-  local backend=$1 server=$2 waited=0
-  until [[ "$(stat_field "$backend" "$server" 18)" == DRAIN* && "$(stat_field "$backend" "$server" 37)" =~ L[4-7]OK ]]; do
+  local backend=$1 server=$2 svc=$3 waited=0 cid
+  until [[ "$(stat_field "$backend" "$server" 18)" =~ ^(DRAIN|UP) && "$(stat_field "$backend" "$server" 37)" =~ L[4-7]OK ]]; do
+    # A container that exits or restarts will never pass: say so now, with its logs, rather than after
+    # UP_TIMEOUT with nothing to read.
+    cid=$(compose ps -aq "$svc" 2>/dev/null | head -1)
+    if [[ -n "$cid" ]] && [[ "$(docker_ inspect -f '{{.State.Status}} {{.RestartCount}}' "$cid" 2>/dev/null)" != "running 0" ]]; then
+      echo "✗ $svc exited or restarted while haproxy waited for it — its last lines:"
+      docker_ logs --tail 40 "$cid" 2>&1 | sed 's/^/    /'
+      return 1
+    fi
     if ((waited >= UP_TIMEOUT)); then
-      echo "✗ $backend/$server did not pass its health checks within ${UP_TIMEOUT}s"
+      echo "✗ $backend/$server did not pass its health checks within ${UP_TIMEOUT}s — $svc's last lines:"
+      [[ -n "$cid" ]] && docker_ logs --tail 40 "$cid" 2>&1 | sed 's/^/    /'
+      echo "  haproxy sees: status=$(stat_field "$backend" "$server" 18) check=$(stat_field "$backend" "$server" 37)"
       return 1
     fi
     sleep 3
@@ -171,7 +184,7 @@ replace() {
   drain "$server" "$wait_runs" "$@"
   compose up "${UP[@]}" "$svc"
   sleep "$SETTLE"
-  wait_healthy_drained "$1" "$server"
+  wait_healthy_drained "$1" "$server" "$svc"
   ready "$server" "$@"
   wait_serving "$1" "$server"
 }
@@ -185,7 +198,7 @@ surge() {
   drain "$next_server" 0 "$@"
   compose up "${UP[@]}" "$svc-next"
   sleep "$SETTLE"
-  if ! wait_healthy_drained "$1" "$next_server"; then
+  if ! wait_healthy_drained "$1" "$next_server" "$svc-next"; then
     compose rm -f -s "$svc-next" >/dev/null
     echo "✗ $svc left as it was — its new version never served"
     return 1
