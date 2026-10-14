@@ -65,24 +65,18 @@ wait_serving() {
   echo "  ✓ $backend/$server serving"
 }
 
-# Does this service's running container differ from what the env file now describes? The same two
-# tests compose itself makes: the config hash the container was created with (image tag, env files,
-# everything in its definition) against the current one, and the image it runs against the image its
-# tag now points to (a re-pushed tag). ANYTHING that cannot be read counts as changed — a wrong
-# "unchanged" leaves an old release running while the script reports the stack current.
+# Does this service's running container differ from what the env file now describes? Compose is asked
+# directly: `up --dry-run` prints the action `up` would take — `Recreate` when the config hash or the
+# image moved, `Running` when nothing did, `Creating` when there is no container. Computing the hash
+# here and comparing it with the container's label said "changed" on services compose then left
+# alone (`config --hash` and `up` do not agree on every compose version), so every run announced
+# replacements it never made. ANYTHING that cannot be read counts as changed — a wrong "unchanged"
+# leaves an old release running while the script reports the stack current.
 needs_recreate() {
-  local svc=$1 cid want have ref running pulled
+  local svc=$1 plan
   if ((FORCE)) && [[ "$INFRA" != *" $svc "* ]]; then return 0; fi
-  cid=$(compose ps -q "$svc" 2>/dev/null | head -1)
-  [[ -n "$cid" ]] || return 0
-  want=$(compose config --hash "$svc" 2>/dev/null | awk -v s="$svc" '$1 == s { print $2 }')
-  have=$(docker_ inspect -f '{{index .Config.Labels "com.docker.compose.config-hash"}}' "$cid" 2>/dev/null)
-  [[ -n "$want" && "$want" == "$have" ]] || return 0
-  ref=$(docker_ inspect -f '{{.Config.Image}}' "$cid" 2>/dev/null)
-  running=$(docker_ inspect -f '{{.Image}}' "$cid" 2>/dev/null)
-  pulled=$(docker_ image inspect -f '{{.Id}}' "$ref" 2>/dev/null)
-  [[ -n "$running" && "$running" == "$pulled" ]] || return 0
-  return 1
+  plan=$(compose up -d --no-deps --dry-run "$svc" 2>&1) || return 0
+  [[ "$plan" =~ Container\ [^[:space:]]+\ (Recreate|Creat) ]]
 }
 
 # ── 1. haproxy config ───────────────────────────────────────────────────────────────────────────────
