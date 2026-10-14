@@ -311,6 +311,7 @@ say "starting the stack"
 # First run: starts everything. Re-run (an upgrade): replaces only what changed, one container at a time
 # with no gap, running ingestions handed to the next worker — see scripts/rolling-update.sh.
 ROLL_COMPOSE="$(printf '%q ' "${DOCKER[@]}" compose --env-file "$ENV_FILE" --env-file "$DB_ENV_FILE" ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"})" \
+  ROLL_DOCKER="$(printf '%q ' "${DOCKER[@]}")" \
   "$ROOT/scripts/rolling-update.sh"
 
 # ── 5. Wait until it SERVES — "the containers are up" is not the same thing ──

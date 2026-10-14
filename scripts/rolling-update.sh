@@ -31,12 +31,16 @@ DRAIN_TIMEOUT=600
 SETTLE=15
 
 compose() { eval "$ROLL_COMPOSE \"\$@\""; }
+# The plain docker CLI (`sudo docker` where the user is not in the docker group).
+docker_() { eval "${ROLL_DOCKER:-docker} \"\$@\""; }
 
 FORCE=${ROLL_FORCE:-0}
 UP=(-d --no-deps)
 ((FORCE)) && UP+=(--force-recreate)
 # Never forced — recreating one of these takes the whole stack with it.
 INFRA=" haproxy redis mongodb neo4j "
+# What this run replaced, said at the end — so a run that changed nothing says so.
+REPLACED=()
 
 # haproxy's runtime API — loopback inside the haproxy container (`stats socket` in haproxy.cfg).
 hap() { compose exec -T haproxy sh -c "echo '$1' | nc -w 2 127.0.0.1 9999"; }
@@ -58,11 +62,24 @@ wait_serving() {
   echo "  ✓ $backend/$server serving"
 }
 
-# Would `up` replace this service's container? Compose answers from the image and the config it was
-# created with, so an unchanged service is left exactly as it is.
+# Does this service's running container differ from what the env file now describes? The same two
+# tests compose itself makes: the config hash the container was created with (image tag, env files,
+# everything in its definition) against the current one, and the image it runs against the image its
+# tag now points to (a re-pushed tag). ANYTHING that cannot be read counts as changed — a wrong
+# "unchanged" leaves an old release running while the script reports the stack current.
 needs_recreate() {
-  if ((FORCE)) && [[ "$INFRA" != *" $1 "* ]]; then return 0; fi
-  compose up -d --no-deps --dry-run "$1" 2>&1 | grep -q -E 'Recreate'
+  local svc=$1 cid want have ref running pulled
+  if ((FORCE)) && [[ "$INFRA" != *" $svc "* ]]; then return 0; fi
+  cid=$(compose ps -q "$svc" 2>/dev/null | head -1)
+  [[ -n "$cid" ]] || return 0
+  want=$(compose config --hash "$svc" 2>/dev/null | awk -v s="$svc" '$1 == s { print $2 }')
+  have=$(docker_ inspect -f '{{index .Config.Labels "com.docker.compose.config-hash"}}' "$cid" 2>/dev/null)
+  [[ -n "$want" && "$want" == "$have" ]] || return 0
+  ref=$(docker_ inspect -f '{{.Config.Image}}' "$cid" 2>/dev/null)
+  running=$(docker_ inspect -f '{{.Image}}' "$cid" 2>/dev/null)
+  pulled=$(docker_ image inspect -f '{{.Id}}' "$ref" 2>/dev/null)
+  [[ -n "$running" && "$running" == "$pulled" ]] || return 0
+  return 1
 }
 
 # ── 1. haproxy config ───────────────────────────────────────────────────────────────────────────────
@@ -84,6 +101,7 @@ for svc in $(compose config --services); do
   case " $SURGED $REPLICAS " in *" $svc "*) continue ;; esac
   if needs_recreate "$svc"; then
     echo "→ $svc: recreating"
+    REPLACED+=("$svc")
     if [[ "$INFRA" == *" $svc "* ]]; then compose up -d --no-deps "$svc"; else compose up "${UP[@]}" "$svc"; fi
   fi
 done
@@ -152,6 +170,7 @@ surge() {
   ready "$next_server" "$@"
   wait_serving "$1" "$next_server"
   echo "→ $svc: replacing the original"
+  REPLACED+=("$svc")
   replace "$svc" "$server" 0 "$@"
   echo "→ $svc: removing the update-time copy"
   drain "$next_server" 0 "$@"
@@ -164,12 +183,18 @@ surge admin-server admin1 admin2 admin_api admin_api_long
 for n in 1 2 3 4; do
   needs_recreate "mcp-server-$n" || continue
   echo "→ mcp-server-$n: replacing"
+  REPLACED+=("mcp-server-$n")
   replace "mcp-server-$n" "mcp$n" 0 mcp_server
 done
 for n in 1 2; do
   needs_recreate "public-agent-$n" || continue
   echo "→ public-agent-$n: draining its runs, then replacing"
+  REPLACED+=("public-agent-$n")
   replace "public-agent-$n" "pubagent$n" 1 public_agent
 done
 
-echo "✓ stack is current"
+if ((${#REPLACED[@]})); then
+  echo "✓ replaced ${#REPLACED[@]}: ${REPLACED[*]}"
+else
+  echo "✓ nothing to replace — every running container already matches the env file and its images"
+fi
