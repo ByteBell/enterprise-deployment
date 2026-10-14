@@ -408,8 +408,14 @@ endif
 down:
 	$(COMPOSE) --profile surge down
 
+# prod and local: a rolling restart — every application container replaced one at a time, no gap (ROLL_FORCE).
+# dev: a plain restart.
 restart:
+ifeq ($(BB_ENV),dev)
 	$(COMPOSE) restart
+else
+	ROLL_FORCE=1 $(ROLL)
+endif
 
 ps:
 	@$(COMPOSE) ps
