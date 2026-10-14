@@ -398,7 +398,7 @@ endif
 # included (scripts/rolling-update.sh): one container at a time, each serving before the next is touched,
 # knowledge-server and admin-server swapped through an update-time copy, running ingestions handed to the
 # next worker. `down` is the one full stop.
-ROLL = ROLL_COMPOSE='$(COMPOSE)' ./scripts/rolling-update.sh
+ROLL = ROLL_COMPOSE='$(COMPOSE)' ROLL_DOCKER='$(DOCKER)' ./scripts/rolling-update.sh
 
 # `--profile surge` so an update-time copy an interrupted update left behind goes too.
 down:
