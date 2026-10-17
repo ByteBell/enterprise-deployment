@@ -468,6 +468,7 @@ services:
       - llm/ingest-${INGEST_PROFILE}.env
       - llm/fallback-${FALLBACK_PROFILE}.env
       - llm/agent-${AGENT_PROFILE}.env
+      - public-agent.env
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3200
@@ -490,6 +491,7 @@ services:
       - llm/ingest-${INGEST_PROFILE}.env
       - llm/fallback-${FALLBACK_PROFILE}.env
       - llm/agent-${AGENT_PROFILE}.env
+      - public-agent.env
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3200

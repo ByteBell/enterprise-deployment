@@ -175,6 +175,11 @@ define require_env
 		echo "    cp .env.db.example $(DB_ENV_FILE)"; \
 		exit 1; \
 	}
+	@test -f public-agent.env || { \
+		echo "✗ public-agent reads its own settings (the review's drop judge) from public-agent.env, which does not exist."; \
+		echo "    cp public-agent.env.example public-agent.env"; \
+		exit 1; \
+	}
 endef
 
 # mongosh inside the local mongodb container, authenticated as the MONGODB_URI user. The URI is
