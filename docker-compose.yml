@@ -452,10 +452,10 @@ services:
   # No volumes: this service writes nothing to disk. State is Redis (cap, run state, trace) and Mongo
   # (repo + MCP lookup, run history, cached answers).
   #
-  # MCP grounding is NOT configured here. `resolveMcpCredentials` reads the publishing org's own
-  # `mcp_backend_address` from Mongo and only falls back to `MCP_BACKEND_ADDRESS` when an org carries
-  # none — so the address travels with the data, and a public HTTPS endpoint needs nothing on this
-  # network.
+  # MCP grounding is NOT configured here. `resolveMcpCredentials` dials `MCP_BACKEND_ADDRESS` from the
+  # env file when it is set (this deployment's own MCP), and otherwise the publishing org's
+  # `mcp_backend_address` from Mongo — so a deployment on its own database needs nothing here, and one
+  # sharing another's database (the dev stack) pins its own.
   public-agent-1:
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:public-agent-${IMAGE_TAG:-latest}
     <<: *registry-image
