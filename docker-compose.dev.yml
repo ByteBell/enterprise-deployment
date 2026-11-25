@@ -141,6 +141,53 @@ services:
     networks:
       - stack-net
 
+  # ── vm-worker: starts and stops the language VMs and forwards public-agent's Free/Paid jobs to them ──
+  # (services/public-agent/src/harness/common/language-vm/vm-worker-starts-the-languages-vm-and-forwards-jobs-to-its-api.ts)
+  # Signed in to gcloud as the `vm-worker` service account, from the key file VM_WORKER_KEY_FILE names. The
+  # monorepo is mounted at its HOST path, as for dev-watch, so the worker's ROOT resolves and its tar of the code
+  # sends the working tree. /root is a named volume: gcloud's login and its SSH key to the VMs survive a restart.
+  # USER / LOGNAME: gcloud compute ssh logs in as $USER, and the VMs keep their code in that user's home.
+  # No --watch: a reload mid-job would orphan a running VM.
+  vm-worker:
+    image: bytebell-dev-vm-worker:bun1
+    pull_policy: missing
+    build:
+      dockerfile_inline: |
+        FROM oven/bun:1
+        RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl gnupg openssh-client \
+         && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
+         && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" > /etc/apt/sources.list.d/google-cloud-sdk.list \
+         && apt-get update && apt-get install -y --no-install-recommends google-cloud-cli \
+         && rm -rf /var/lib/apt/lists/*
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev}-vm-worker
+    restart: unless-stopped
+    depends_on:
+      source-deps:
+        condition: service_completed_successfully
+    env_file:
+      - ${ENV_FILE:-.dev.env}
+      - .db.env
+    environment:
+      USER: ${VM_WORKER_SSH_USER:?VM_WORKER_SSH_USER is unset - the VMs' login user, in the env file}
+      LOGNAME: ${VM_WORKER_SSH_USER}
+      VM_WORKER_MCP_FORWARD_TO: haproxy:80
+    working_dir: ${COMPOSE_PROJECT_DIR}/../services/public-agent
+    command:
+      - sh
+      - -ec
+      - |
+        gcloud auth activate-service-account --key-file=/run/vm-worker-key.json --quiet
+        exec bun --no-env-file src/harness/common/language-vm/vm-worker-starts-the-languages-vm-and-forwards-jobs-to-its-api.ts serve
+    volumes:
+      - ${COMPOSE_PROJECT_DIR}/..:${COMPOSE_PROJECT_DIR}/..
+      - pa_nm:${COMPOSE_PROJECT_DIR}/../services/public-agent/node_modules
+      - ${VM_WORKER_KEY_FILE:?VM_WORKER_KEY_FILE is unset - the vm-worker service account key, in the env file}:/run/vm-worker-key.json:ro
+      - vm_worker_home:/root
+    ports:
+      - "127.0.0.1:7071:7071"
+    networks:
+      - stack-net
+
   # ── ingestion-engine: logs go to <workspace root>/logs (packages/logger), so each service mounts
   # its own host log directory there ──
   knowledge-server: &dev-knowledge-server
@@ -157,6 +204,9 @@ services:
       - ie_nm_ingest_estimator:/src/packages/ingest-estimator/node_modules
       - ie_nm_mcp_server:/src/packages/mcp-server/node_modules
       - ./logs/knowledge-server:/src/logs
+      # /app/temp on the Mac's disk, not Docker's small VM disk and not the bucket: TEMP_DIR is a GCS
+      # rclone mount Docker cannot see into, and the bucket over NFS is far too slow for clones.
+      - ../must-be-deleted:/app/temp
 
   admin-server: &dev-admin-server
     <<: *source
@@ -172,6 +222,9 @@ services:
       - ie_nm_ingest_estimator:/src/packages/ingest-estimator/node_modules
       - ie_nm_mcp_server:/src/packages/mcp-server/node_modules
       - ./logs/admin-server:/src/logs
+      # /app/temp on the Mac's disk, not Docker's small VM disk and not the bucket: TEMP_DIR is a GCS
+      # rclone mount Docker cannot see into, and the bucket over NFS is far too slow for clones.
+      - ../must-be-deleted:/app/temp
 
   # The update-time copies run the same source as the services they stand in for (rolling-update.sh).
   knowledge-server-next: *dev-knowledge-server
@@ -208,6 +261,9 @@ services:
       - mcp_nm_shared:/src/packages/shared/node_modules
       - mcp_nm_volt_core:/src/packages/volt-core/node_modules
       - ./logs/mcp/mcp-1:/src/mcp-server/logs
+      # /app/temp on the Mac's disk, not Docker's small VM disk and not the bucket: TEMP_DIR is a GCS
+      # rclone mount Docker cannot see into, and the bucket over NFS is far too slow for clones.
+      - ../must-be-deleted:/app/temp
 
   mcp-server-2:
     <<: *source
@@ -224,6 +280,9 @@ services:
       - mcp_nm_shared:/src/packages/shared/node_modules
       - mcp_nm_volt_core:/src/packages/volt-core/node_modules
       - ./logs/mcp/mcp-2:/src/mcp-server/logs
+      # /app/temp on the Mac's disk, not Docker's small VM disk and not the bucket: TEMP_DIR is a GCS
+      # rclone mount Docker cannot see into, and the bucket over NFS is far too slow for clones.
+      - ../must-be-deleted:/app/temp
 
   mcp-server-3:
     <<: *source
@@ -240,6 +299,9 @@ services:
       - mcp_nm_shared:/src/packages/shared/node_modules
       - mcp_nm_volt_core:/src/packages/volt-core/node_modules
       - ./logs/mcp/mcp-3:/src/mcp-server/logs
+      # /app/temp on the Mac's disk, not Docker's small VM disk and not the bucket: TEMP_DIR is a GCS
+      # rclone mount Docker cannot see into, and the bucket over NFS is far too slow for clones.
+      - ../must-be-deleted:/app/temp
 
   mcp-server-4:
     <<: *source
@@ -256,6 +318,9 @@ services:
       - mcp_nm_shared:/src/packages/shared/node_modules
       - mcp_nm_volt_core:/src/packages/volt-core/node_modules
       - ./logs/mcp/mcp-4:/src/mcp-server/logs
+      # /app/temp on the Mac's disk, not Docker's small VM disk and not the bucket: TEMP_DIR is a GCS
+      # rclone mount Docker cannot see into, and the bucket over NFS is far too slow for clones.
+      - ../must-be-deleted:/app/temp
 
   public-agent-1:
     <<: *source
@@ -291,3 +356,4 @@ volumes:
   mcp_nm_volt_core:
   pa_nm:
   ui_nm:
+  vm_worker_home:
