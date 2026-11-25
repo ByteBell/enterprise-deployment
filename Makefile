@@ -52,7 +52,10 @@ export STACK_ENV
 # socket into admin-server); prod never does.
 # dev adds docker-compose.dev.yml, which runs the monorepo's source in place of the images.
 # local adds docker-compose.local-storage.yml, which mounts temp/ into public-agent for its local archive.
-COMPOSE_FILE     := docker-compose.yml$(if $(filter prod,$(BB_ENV)),,:docker-compose.stack-settings.yml)$(if $(filter dev,$(BB_ENV)),:docker-compose.dev.yml)$(if $(LOCAL_DB_ENV_FILE),:docker-compose.local-db.yml)$(if $(filter localhost,$(BB_ENV)),:docker-compose.local-storage.yml)
+# prod adds docker-compose.vm-worker.yml only when its env file sets VM_WORKER_SSH_USER (the GCP application
+# server; see deployment.md). Read from the file here: the env file is included below, after this line.
+VM_WORKER_ON     := $(if $(filter prod,$(BB_ENV)),$(shell grep -qE '^[[:space:]]*VM_WORKER_SSH_USER=.' $(ENV_FILE) 2>/dev/null && echo yes))
+COMPOSE_FILE     := docker-compose.yml$(if $(filter prod,$(BB_ENV)),,:docker-compose.stack-settings.yml)$(if $(filter dev,$(BB_ENV)),:docker-compose.dev.yml)$(if $(LOCAL_DB_ENV_FILE),:docker-compose.local-db.yml)$(if $(filter localhost,$(BB_ENV)),:docker-compose.local-storage.yml)$(if $(VM_WORKER_ON),:docker-compose.vm-worker.yml)
 export COMPOSE_FILE
 
 # Read the selected files only to sanity-check them and to print what is running. Compose reads them
@@ -254,8 +257,7 @@ preflight:
 	@docker compose version >/dev/null 2>&1 || { echo "✗ the docker compose plugin is missing — see README, Step 1"; exit 1; }
 	@# dev bind-mounts the monorepo's source; outside it Docker would create empty directories there.
 	@test "$(BB_ENV)" != dev -o -d ../services/ingestion-engine/repo -a -d ../frontends/admin-dashboard/repo || \
-	  { echo "✗ dev runs the ByteBell monorepo's source, and ../services is not here — use 'make up local'"; exit 1; }
-	$(call require_env)
+	  { echo "✗ dev runs the ByteBell monorepo's source, and ../services is not here — use 'make up local'"; exit 1; }	$(call require_env)
 	@# dev pulls nothing, so it needs no registry.
 	@missing=""; for k in $(if $(filter dev,$(BB_ENV)),,IMAGE_REGISTRY IMAGE_REPO_PREFIX IMAGE_REPO_NAME REGISTRY_USERNAME \
 	  REGISTRY_TOKEN) $(if $(filter localhost,$(BB_ENV)),,COMPOSE_PROJECT_DIR) JWT_SECRET \

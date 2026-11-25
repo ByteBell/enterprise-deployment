@@ -1,0 +1,45 @@
+# =============================================================================
+# vm-worker on a GCP application server (prod)
+# =============================================================================
+# Starts and stops the language VMs and forwards public-agent's Free/Paid jobs to them (public-agent
+# reaches it at ISSUE_VM_WORKER_URL). The image is `vm-worker-<version>`, built by the monorepo's
+# scripts/local-release.sh from docker/vm-worker.Dockerfile, and pulled like every other service.
+#
+# `make up prod` adds this file only when the env file sets VM_WORKER_SSH_USER, so a deployment without
+# the language VMs (every client install) runs exactly as before. See deployment.md.
+#
+# Differences from the dev service (docker-compose.dev.yml):
+#   - A released image, not the monorepo's source.
+#   - No key file and no `gcloud auth`: gcloud signs in through the GCP VM's metadata server, as the
+#     service account attached to the VM. The org policy iam.disableServiceAccountKeyCreation forbids keys.
+#   - No host port: only public-agent calls it, over stack-net.
+#
+# The worker reads .db.env and llm/ (it sends their values to a VM for one job), mounted read-only where
+# its code expects them. /root keeps gcloud's SSH key to the VMs; /kube-package/can-be-deleted keeps its
+# run folders. Both are named volumes, so a restart keeps them.
+services:
+  vm-worker:
+    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:vm-worker-${IMAGE_TAG:-latest}
+    pull_policy: ${PULL_POLICY:-always}
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up prod}-vm-worker
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE:-.production.env}
+      - .db.env
+    environment:
+      USER: ${VM_WORKER_SSH_USER:?VM_WORKER_SSH_USER is unset - the VMs' login user, in the env file}
+      LOGNAME: ${VM_WORKER_SSH_USER}
+      VM_WORKER_MCP_FORWARD_TO: haproxy:80
+    volumes:
+      - ./.db.env:/kube-package/enterprise-deployment/.db.env:ro
+      - ./llm:/kube-package/enterprise-deployment/llm:ro
+      - vm_worker_runs:/kube-package/can-be-deleted
+      - vm_worker_home:/root
+    networks:
+      - stack-net
+
+volumes:
+  vm_worker_runs:
+    name: ${COMPOSE_PROJECT_NAME:-bb-stack}_vm_worker_runs
+  vm_worker_home:
+    name: ${COMPOSE_PROJECT_NAME:-bb-stack}_vm_worker_home
