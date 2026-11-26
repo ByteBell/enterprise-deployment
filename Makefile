@@ -57,6 +57,11 @@ export STACK_ENV
 VM_WORKER_ON     := $(if $(filter prod,$(BB_ENV)),$(shell grep -qE '^[[:space:]]*VM_WORKER_SSH_USER=.' $(ENV_FILE) 2>/dev/null && echo yes))
 COMPOSE_FILE     := docker-compose.yml$(if $(filter prod,$(BB_ENV)),,:docker-compose.stack-settings.yml)$(if $(filter dev,$(BB_ENV)),:docker-compose.dev.yml)$(if $(LOCAL_DB_ENV_FILE),:docker-compose.local-db.yml)$(if $(filter localhost,$(BB_ENV)),:docker-compose.local-storage.yml)$(if $(VM_WORKER_ON),:docker-compose.vm-worker.yml)
 export COMPOSE_FILE
+# conversation-memory sits behind a compose profile (docker-compose.yml): dev and local run it, prod does
+# not. Not exported for prod, so a prod env file's own COMPOSE_PROFILES=conversation-memory still counts.
+ifneq ($(BB_ENV),prod)
+export COMPOSE_PROFILES := conversation-memory
+endif
 
 # Read the selected files only to sanity-check them and to print what is running. Compose reads them
 # itself for ${VAR} substitution, which is why no target has to pass IMAGE_TAG along.

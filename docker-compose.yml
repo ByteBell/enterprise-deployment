@@ -269,7 +269,12 @@ services:
       - stack-net
 
   # ── Conversation Memory (embedded LadybugDB — SINGLE instance; durable volume + S3 snapshot) ──
+  # Behind a profile: prod leaves it out (its image cannot be rebuilt while LadybugDB's extension server
+  # returns 404 for the vector extension), dev and local turn it on (Makefile). A prod env file brings it
+  # back with COMPOSE_PROFILES=conversation-memory. mcp-server and ingestion-engine call it only when
+  # CONVERSATION_MEMORY_URL is set, so without it those calls are skipped.
   conversation-memory:
+    profiles: ["conversation-memory"]
     image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:conversation-memory-${IMAGE_TAG:-latest}
     <<: *registry-image
     container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-conversation-memory
