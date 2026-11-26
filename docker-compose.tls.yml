@@ -1,0 +1,18 @@
+# =============================================================================
+# HTTPS on the stack's haproxy (ByteBell's GCP server)
+# =============================================================================
+# `make up prod` adds this file only when the env file sets TLS_CERT_FILE: the host path of one PEM file
+# holding the certificate and its private key. haproxy then also listens on 443 and sends plain HTTP for
+# bytebell.ai and its subdomains to https (haproxy/haproxy.cfg, `.if defined(HAPROXY_TLS_CERT)`). Calls
+# inside the stack keep using http://haproxy on port 80. See deployment.md.
+#
+# Behind Cloudflare, the zone's SSL/TLS mode must be Full or Full (strict): with Flexible, Cloudflare
+# fetches the origin over HTTP, the origin redirects to HTTPS, and the two loop.
+services:
+  haproxy:
+    ports:
+      - "${HTTPS_HOST_PORT:-443}:443"
+    environment:
+      HAPROXY_TLS_CERT: /usr/local/etc/haproxy-tls/site.pem
+    volumes:
+      - ${TLS_CERT_FILE:?TLS_CERT_FILE is unset - the PEM with the certificate and its key, in the env file}:/usr/local/etc/haproxy-tls/site.pem:ro

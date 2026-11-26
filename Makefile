@@ -55,7 +55,9 @@ export STACK_ENV
 # prod adds docker-compose.vm-worker.yml only when its env file sets VM_WORKER_SSH_USER (the GCP application
 # server; see deployment.md). Read from the file here: the env file is included below, after this line.
 VM_WORKER_ON     := $(if $(filter prod,$(BB_ENV)),$(shell grep -qE '^[[:space:]]*VM_WORKER_SSH_USER=.' $(ENV_FILE) 2>/dev/null && echo yes))
-COMPOSE_FILE     := docker-compose.yml$(if $(filter prod,$(BB_ENV)),,:docker-compose.stack-settings.yml)$(if $(filter dev,$(BB_ENV)),:docker-compose.dev.yml)$(if $(LOCAL_DB_ENV_FILE),:docker-compose.local-db.yml)$(if $(filter localhost,$(BB_ENV)),:docker-compose.local-storage.yml)$(if $(VM_WORKER_ON),:docker-compose.vm-worker.yml)
+# prod adds docker-compose.tls.yml (HTTPS on haproxy) only when its env file sets TLS_CERT_FILE.
+TLS_ON           := $(if $(filter prod,$(BB_ENV)),$(shell grep -qE '^[[:space:]]*TLS_CERT_FILE=.' $(ENV_FILE) 2>/dev/null && echo yes))
+COMPOSE_FILE     := docker-compose.yml$(if $(filter prod,$(BB_ENV)),,:docker-compose.stack-settings.yml)$(if $(filter dev,$(BB_ENV)),:docker-compose.dev.yml)$(if $(LOCAL_DB_ENV_FILE),:docker-compose.local-db.yml)$(if $(filter localhost,$(BB_ENV)),:docker-compose.local-storage.yml)$(if $(VM_WORKER_ON),:docker-compose.vm-worker.yml)$(if $(TLS_ON),:docker-compose.tls.yml)
 export COMPOSE_FILE
 # conversation-memory sits behind a compose profile (docker-compose.yml): dev and local run it, prod does
 # not. Not exported for prod, so a prod env file's own COMPOSE_PROFILES=conversation-memory still counts.

@@ -49,6 +49,25 @@ driver runs inside the container or on the VM, as the service account.
 | Service Account User | the index VMs' service account |
 | Storage Object Admin | `gs://bytebell-agent-traces` |
 
+## HTTPS only
+
+bytebell.ai is served on port 443 only. A plain HTTP request for bytebell.ai or any of its subdomains is
+answered with a `301` to the same URL on https. Traffic inside the stack (public-agent to
+`http://haproxy/mcp`, vm-worker's forward to `haproxy:80`) stays plain HTTP on the docker network, because
+the redirect is bound to the public host names.
+
+1. **Put a certificate on the server**, outside `enterprise-deployment/` so it is never committed: one PEM
+   file holding the certificate followed by its private key, readable only by its owner (`chmod 600`).
+   - Preferred: a **Cloudflare Origin CA** certificate for `bytebell.ai` and `*.bytebell.ai`
+     (Cloudflare → SSL/TLS → Origin Server → Create Certificate), with the zone on **Full (strict)**.
+   - Until then: a self-signed certificate made on the server, with the zone on **Full**. Cloudflare
+     still encrypts the hop to the origin but does not check the certificate.
+2. **Name it in `.production.env`:** `TLS_CERT_FILE=<path to the PEM>`. `make up prod` then adds
+   `docker-compose.tls.yml`, which publishes port 443 and turns on the TLS block in `haproxy/haproxy.cfg`.
+3. **Set Cloudflare's SSL/TLS mode to Full or Full (strict), never Flexible.** With Flexible, Cloudflare
+   fetches the origin over HTTP, the origin redirects to HTTPS, and the two loop.
+4. **Open the GCP firewall for ports 80 and 443** on the server, to Cloudflare's address ranges only.
+
 ## Turning vm-worker on
 
 vm-worker is a released image like every other service: `vm-worker-<version>`, built by the monorepo's
