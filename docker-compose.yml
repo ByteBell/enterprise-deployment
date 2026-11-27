@@ -505,6 +505,30 @@ services:
     networks:
       - stack-net
 
+  # ── Precise Symbol Index (MCP over the tree-sitter + SCIP index on PostgreSQL) ──
+  #
+  # haproxy routes /symbol-index here. A compiled binary that writes nothing to disk: it reads the
+  # `scip_index` and `tree_sitter_index` databases on the postgres-db VM as `symbol_reader`
+  # (SCIP_INDEX_READER_PG_URL / TREE_SITTER_INDEX_READER_PG_URL in .db.env, the VM's internal address)
+  # and resolves the caller's MCP key in the admin database (MONGODB_URI, ADMIN_DATABASE_NAME, .db.env).
+  # It refuses to start unless both databases' tables are readable as that role.
+  precise-symbol-index:
+    image: ${IMAGE_REGISTRY}/${IMAGE_REPO_PREFIX}/${IMAGE_REPO_NAME:-plumbline-containers}:precise-symbol-index-${IMAGE_TAG:-latest}
+    <<: *registry-image
+    container_name: ${STACK_ENV:?STACK_ENV is unset - run through make up dev|local|prod}-precise-symbol-index
+    restart: unless-stopped
+    env_file:
+      - .db.env
+    environment:
+      PORT: 3300
+    read_only: true
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    networks:
+      - stack-net
+
   # ── Log Cleaner (prune logs older than 7 days) ─────────────────────────────
   log-cleaner:
     image: alpine:3.19
